@@ -52,7 +52,6 @@ func EventSource(a application.App) http.HandlerFunc {
 			Notify: make(chan application.Message),
 		}
 
-
 		a.Add(client)
 
 		defer func() {
@@ -80,7 +79,7 @@ func Push(a application.App) http.HandlerFunc {
 			return
 		}
 
-		a.Notify(application.NewMessage("", "", body))		
+		a.Notify(application.NewMessage("", "", body))
 		w.WriteHeader(http.StatusOK)
 	}
 }
