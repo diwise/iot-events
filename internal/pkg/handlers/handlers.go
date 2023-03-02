@@ -12,7 +12,13 @@ import (
 
 func NewTopicMessageHandler(messenger messaging.MsgContext, app application.App) messaging.TopicMessageHandler {
 	return func(ctx context.Context, d amqp.Delivery, l zerolog.Logger) {
-		broker := app.GetBroker()
-		broker.Notifier <- application.NewMessage(d.MessageId, d.RoutingKey, d.Body)
+
+		//TODO: filter messages by routingKey
+		
+		//TODO: get tenant from header
+		tenant := "default"
+
+		m := application.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body)
+		app.Notify(m)
 	}
 }

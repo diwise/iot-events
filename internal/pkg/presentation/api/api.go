@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/application"
 	"github.com/go-chi/chi/v5"
@@ -47,10 +46,8 @@ func EventSource(a application.App) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		client := application.Client{
-			ID:     fmt.Sprintf("%d", time.Now().Unix()),
-			Notify: make(chan application.Message),
-		}
+		//TODO: get tenants from token
+		client := application.NewClient([]string{})
 
 		a.Add(client)
 
@@ -79,7 +76,7 @@ func Push(a application.App) http.HandlerFunc {
 			return
 		}
 
-		a.Notify(application.NewMessage("", "", body))
+		a.Notify(application.NewMessage("", "", "default", body))
 		w.WriteHeader(http.StatusOK)
 	}
 }

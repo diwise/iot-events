@@ -2,13 +2,13 @@ package application
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
 type App interface {
 	Listen()
-	GetBroker() *Broker
-	Add(client Client) 
+	Add(client Client)
 	Close(client Client)
 	Notify(message Message)
 }
@@ -30,7 +30,7 @@ func New(b *Broker) App {
 
 func (a *app) KeepAlive() {
 	for {
-		a.broker.Notifier <- NewMessage("", "keep-alive", nil)
+		a.broker.Notifier <- NewMessage("", "keep-alive", "default", nil)
 		time.Sleep(10 * time.Second)
 	}
 }
@@ -44,13 +44,15 @@ func (a *app) Listen() {
 			delete(a.broker.Clients, client.ID)
 		case event := <-a.broker.Notifier:
 			for _, client := range a.broker.Clients {
-				client.Notify <- event
+				if client.Allow(event.Tenant()) {
+					client.Notify <- event
+				}
 			}
 		}
 	}
 }
 
-func (a *app) Add(client Client){
+func (a *app) Add(client Client) {
 	a.broker.AddClient <- client
 }
 
@@ -62,45 +64,65 @@ func (a *app) Notify(message Message) {
 	a.broker.Notifier <- message
 }
 
-func (a *app) GetBroker() *Broker {
-	return a.broker
-}
-
 type Client struct {
 	ID      string
 	Tenants []string
 	Notify  chan Message
 }
 
+func NewClient(tenants []string) Client {
+	if len(tenants) == 0 {
+		tenants = append(tenants, "default")
+	}
+
+	return Client{
+		ID:      fmt.Sprintf("%d", time.Now().Unix()),
+		Notify:  make(chan Message),
+		Tenants: tenants,
+	}
+}
+
+func (c *Client) Allow(tenant string) bool {
+	for _, t := range c.Tenants {
+		if t == tenant {
+			return true
+		}
+	}
+	return false
+}
+
 type message struct {
-	ID    string
-	Event string
-	Data  any
+	id        string
+	eventName string
+	tenant    string
+	data      any
 }
 
 type Message interface {
 	Format() string
+	Tenant() string
 }
 
-func NewMessage(id, event string, data any) Message {
+func NewMessage(id, event, tenant string, data any) Message {
 	return &message{
-		ID:    id,
-		Event: event,
-		Data:  data,
+		id:        id,
+		eventName: event,
+		data:      data,
+		tenant:    tenant,
 	}
 }
 
 func (m *message) Format() string {
 	msg := ""
 
-	if m.ID != "" {
-		msg = msg + "id: " + m.ID + "\n"
+	if m.id != "" {
+		msg = msg + "id: " + m.id + "\n"
 	}
-	if m.Event != "" {
-		msg = msg + "event: " + m.Event + "\n"
+	if m.eventName != "" {
+		msg = msg + "event: " + m.eventName + "\n"
 	}
-	if m.Data != nil {
-		if b, err := json.Marshal(m.Data); err == nil {
+	if m.data != nil {
+		if b, err := json.Marshal(m.data); err == nil {
 			msg = msg + "data: " + string(b) + "\n"
 		}
 	}
@@ -108,6 +130,10 @@ func (m *message) Format() string {
 	msg = msg + "\n"
 
 	return msg
+}
+
+func (m *message) Tenant() string {
+	return m.tenant
 }
 
 type Broker struct {
