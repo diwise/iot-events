@@ -1,7 +1,7 @@
 package application
 
 import (
-	"encoding/json"
+	"encoding/base64"
 	"fmt"
 	"time"
 )
@@ -95,7 +95,7 @@ type message struct {
 	id        string
 	eventName string
 	tenant    string
-	data      any
+	data      []byte
 }
 
 type Message interface {
@@ -103,7 +103,7 @@ type Message interface {
 	Tenant() string
 }
 
-func NewMessage(id, event, tenant string, data any) Message {
+func NewMessage(id, event, tenant string, data []byte) Message {
 	return &message{
 		id:        id,
 		eventName: event,
@@ -122,9 +122,8 @@ func (m *message) Format() string {
 		msg = msg + "event: " + m.eventName + "\n"
 	}
 	if m.data != nil {
-		if b, err := json.Marshal(m.data); err == nil {
-			msg = msg + "data: " + string(b) + "\n"
-		}
+		b64 := base64.StdEncoding.EncodeToString(m.data)
+		msg = msg + "data: " + b64 + "\n"
 	}
 
 	msg = msg + "\n"
