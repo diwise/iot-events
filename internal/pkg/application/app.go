@@ -7,7 +7,6 @@ import (
 )
 
 type App interface {
-	Listen()
 	Add(client Client)
 	Close(client Client)
 	Notify(message Message)
@@ -22,20 +21,45 @@ func New(b *Broker) App {
 		broker: b,
 	}
 
-	go a.Listen()
-	go a.KeepAlive()
+	go a.run()
+	go a.keepAlive()
+	go a.cloudEvents()
 
 	return a
 }
 
-func (a *app) KeepAlive() {
+func (a *app) keepAlive() {
 	for {
 		a.broker.Notifier <- NewMessage("", "keep-alive", "default", nil)
 		time.Sleep(10 * time.Second)
 	}
 }
 
-func (a *app) Listen() {
+func (a *app) cloudEvents() {
+	//TODO: read from notifications.yaml.
+
+	cloudEventClient := Client{
+		ID:      "cloudevents",
+		Tenants: []string{},
+		Notify:  make(chan Message),
+	}
+
+	a.Add(cloudEventClient)
+
+	defer func() {
+		a.Close(cloudEventClient)
+	}()
+
+	for {
+		event := <-cloudEventClient.Notify
+
+		//TODO: send cloud events
+
+		fmt.Printf("%s", event.Format())
+	}
+}
+
+func (a *app) run() {
 	for {
 		select {
 		case client := <-a.broker.AddClient:
