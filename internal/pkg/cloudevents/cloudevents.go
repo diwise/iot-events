@@ -66,7 +66,7 @@ func (s *ceSubscriberImpl) Tenants() []string {
 func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
 	return s.notify
 }
-func (s *ceSubscriberImpl) Allowed(m mediator.Message) bool {
+func (s *ceSubscriberImpl) Valid(m mediator.Message) bool {
 	if m.Type() == "keep-alive" {
 		return false
 	}

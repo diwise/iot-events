@@ -48,7 +48,7 @@ type Subscriber interface {
 	ID() string
 	Tenants() []string
 	Mailbox() chan Message
-	Allowed(m Message) bool
+	Valid(m Message) bool
 }
 
 type subscriberImpl struct {
@@ -78,7 +78,7 @@ func (s *subscriberImpl) Tenants() []string {
 func (s *subscriberImpl) Mailbox() chan Message {
 	return s.notify
 }
-func (s *subscriberImpl) Allowed(m Message) bool {
+func (s *subscriberImpl) Valid(m Message) bool {
 	for _, t := range s.tenants {
 		if t == m.Tenant() {
 			return true
@@ -128,7 +128,7 @@ func (m *mediatorImpl) Start() {
 			delete(m.subscribers, s.ID())
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
-				if s.Allowed(msg) {
+				if s.Valid(msg) {
 					s.Mailbox() <- msg
 				}
 			}
