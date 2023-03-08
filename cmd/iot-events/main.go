@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/diwise/iot-events/internal/pkg/application"
+	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/handlers"
+	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
@@ -18,13 +19,13 @@ var serviceName string = "iot-events"
 
 func main() {
 	serviceVersion := buildinfo.SourceVersion()
-	_, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion)
+	ctx, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion)
 	defer cleanup()
 
-	broker := application.NewBroker()
-	app := application.New(broker)
-	api := api.New(serviceName, app)
+	mediator := mediator.New()
+	go mediator.Start()
 
+	api := api.New(serviceName, mediator)
 	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(logger, "SERVICE_PORT", "8080"))
 
 	config := messaging.LoadConfiguration(serviceName, logger)
@@ -33,7 +34,10 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to init messenger")
 	}
 
-	messenger.RegisterTopicMessageHandler("*", handlers.NewTopicMessageHandler(messenger, app))
+	messenger.RegisterTopicMessageHandler("*", handlers.NewTopicMessageHandler(messenger, mediator))
+
+	ce := cloudevents.New(mediator)
+	go ce.Start(ctx)
 
 	http.ListenAndServe(apiPort, api)
 }
