@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"net/http"
 
@@ -13,6 +14,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
 var serviceName string = "iot-events"
@@ -22,8 +24,14 @@ func main() {
 	ctx, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion)
 	defer cleanup()
 
-	mediator := mediator.New()
-	go mediator.Start()
+	var notificationConfigPath string
+	flag.StringVar(&notificationConfigPath, "notifications", "/opt/diwise/config/cloudevents.yaml", "Configuration file for notifications")
+	flag.Parse()
+
+	ctx = logging.NewContextWithLogger(ctx, logger)
+
+	mediator := mediator.New(logger)
+	go mediator.Start(ctx)
 
 	api := api.New(serviceName, mediator)
 	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(logger, "SERVICE_PORT", "8080"))
@@ -34,10 +42,11 @@ func main() {
 		logger.Fatal().Err(err).Msg("failed to init messenger")
 	}
 
-	messenger.RegisterTopicMessageHandler("*", handlers.NewTopicMessageHandler(messenger, mediator))
+	topic := env.GetVariableOrDefault(logger, "RABBITMQ_TOPIC", "#")
 
-	ce := cloudevents.New(mediator)
-	go ce.Start(ctx)
+	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator))
+
+	cloudevents.New(cloudevents.LoadConfigurationFromFile(notificationConfigPath), mediator, logger)
 
 	http.ListenAndServe(apiPort, api)
 }

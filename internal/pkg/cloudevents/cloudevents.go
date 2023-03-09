@@ -3,58 +3,51 @@ package cloudevents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/rs/zerolog"
+	"golang.org/x/sys/unix"
+
+	cloud "github.com/cloudevents/sdk-go/v2"
 )
 
-type CloudEvents interface {
-	Start(ctx context.Context)
-}
+type CloudEvents interface{}
+type cloudeventsImpl struct{}
 
-type cloudeventsImpl struct {
-	subscriber mediator.Subscriber
-	mediator   mediator.Mediator
-}
-
-func (c *cloudeventsImpl) Start(ctx context.Context) {
-	for {
-		select {
-		case <-ctx.Done():
-			c.mediator.Unregister(c.subscriber)
-			return
-		case msg := <-c.subscriber.Mailbox():
-			b, err := json.MarshalIndent(msg, "", "")
-			if err != nil {
-				fmt.Printf("error: %s", err.Error())
+func New(config *Config, m mediator.Mediator, logger zerolog.Logger) CloudEvents {
+	for _, n := range config.Notifications {
+		for i, s := range n.Subscribers {
+			sId := fmt.Sprintf("cloud-events-%s-%d", n.ID, i)
+			logger = logger.With().Str("subscriber_id", sId).Str("endpoint", s.Endpoint).Logger()
+			subscriber := &ceSubscriberImpl{
+				id:          sId,
+				inbox:       make(chan mediator.Message),
+				tenants:     []string{"default"},
+				endpoint:    s.Endpoint,
+				messageType: n.Type,
+				logger:      logger,
 			}
 
-			fmt.Printf("cloud event: %s", string(b))
+			m.Register(subscriber)
+
+			go subscriber.run(m)
 		}
 	}
-}
 
-func New(m mediator.Mediator) CloudEvents {
-	s := &ceSubscriberImpl{
-		id:      "cloud-events",
-		notify:  make(chan mediator.Message),
-		tenants: []string{"default"},
-	}
-
-	// TODO: read from file and register multiple (?) subscribers
-
-	m.Register(s)
-
-	return &cloudeventsImpl{
-		subscriber: s,
-		mediator:   m,
-	}
+	return &cloudeventsImpl{}
 }
 
 type ceSubscriberImpl struct {
-	id      string
-	tenants []string
-	notify  chan mediator.Message
+	id          string
+	tenants     []string
+	inbox       chan mediator.Message
+	endpoint    string
+	messageType string
+	done        chan bool
+	logger      zerolog.Logger
 }
 
 func (s *ceSubscriberImpl) ID() string {
@@ -64,17 +57,73 @@ func (s *ceSubscriberImpl) Tenants() []string {
 	return s.tenants
 }
 func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
-	return s.notify
+	return s.inbox
 }
-func (s *ceSubscriberImpl) Valid(m mediator.Message) bool {
-	if m.Type() == "keep-alive" {
-		return false
+func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) {
+	if m.Type() != s.messageType {
+		return
 	}
 
-	for _, t := range s.tenants {
-		if t == m.Tenant() {
-			return true
+	s.inbox <- m
+}
+
+func (s *ceSubscriberImpl) run(m mediator.Mediator) {
+	defer func() {
+		m.Unregister(s)
+	}()
+
+	for {
+		select {
+		case <-s.done:
+			s.logger.Debug().Msg("Done!")
+			return
+		case msg := <-s.inbox:
+			c, err := cloud.NewClientHTTP()
+			if err != nil {
+				s.logger.Error().Err(err).Msg("could not create cloud events client")
+				break
+			}
+
+			var ds DeviceStatusUpdated
+			err = json.Unmarshal(msg.Data(), &ds)
+			if err != nil {
+				s.logger.Error().Err(err).Msg("failed to unmarshal DeviceStatusUpdated")
+				break
+			}
+
+			event := cloud.NewEvent()
+			event.SetID(fmt.Sprintf("%s:%d", ds.DeviceID, ds.Timestamp.Unix()))
+			event.SetTime(ds.Timestamp)
+			event.SetSource("github.com/diwise/iot-device-mgmt")
+			event.SetType("diwise.statusmessage")
+			err = event.SetData(cloud.ApplicationJSON, ds)
+			if err != nil {
+				s.logger.Error().Err(err).Msg("failed to set data")
+				s.done <- true
+				break
+			}
+
+			ctx := cloud.ContextWithTarget(context.Background(), s.endpoint)
+			result := c.Send(ctx, event)
+			if cloud.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
+				err = fmt.Errorf("%w", result)
+				s.logger.Error().Err(err).Msg("faild to send message")
+				s.done <- true
+			}
 		}
 	}
-	return false
+}
+
+type DeviceStatusUpdated struct {
+	DeviceID     string       `json:"deviceID"`
+	DeviceStatus DeviceStatus `json:"status"`
+	Timestamp    time.Time    `json:"timestamp"`
+}
+
+type DeviceStatus struct {
+	DeviceID     string   `json:"deviceID,omitempty"`
+	BatteryLevel int      `json:"batteryLevel"`
+	Code         int      `json:"statusCode"`
+	Messages     []string `json:"statusMessages,omitempty"`
+	Timestamp    string   `json:"timestamp"`
 }
