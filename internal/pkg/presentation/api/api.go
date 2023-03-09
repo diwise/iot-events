@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -8,13 +9,19 @@ import (
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
 	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
 	"github.com/rs/cors"
+	"github.com/rs/zerolog"
 )
 
-func New(serviceName string, mediator mediator.Mediator) chi.Router {
+func New(serviceName string, mediator mediator.Mediator, policies io.Reader, logger zerolog.Logger) chi.Router {
 	r := chi.NewRouter()
+
+	r.Use(middleware.Logger)
+	r.Use(middleware.Recoverer)
 
 	r.Use(cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
@@ -28,15 +35,26 @@ func New(serviceName string, mediator mediator.Mediator) chi.Router {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	r.Get("/api/events", EventSource(mediator))
-	r.Post("/api/push", Push(mediator))
+	r.Route("/api", func(r chi.Router) {
+		r.Group(func(r chi.Router) {
+			authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
+			if err != nil {
+				logger.Fatal().Err(err).Msg("failed to create api authenticator")
+			}
+
+			r.Use(authenticator)
+			r.Get("/events", EventSource(mediator, logger))
+		})
+
+		r.Post("/push", Push(mediator))
+	})
 
 	KeepAlive(mediator)
 
 	return r
 }
 
-func EventSource(m mediator.Mediator) http.HandlerFunc {
+func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 
@@ -50,13 +68,13 @@ func EventSource(m mediator.Mediator) http.HandlerFunc {
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		//TODO: get tenants from token
-		subscriber := mediator.NewSubscriber([]string{})
+		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
+		subscriber := mediator.NewSubscriber(allowedTenants)
 
 		m.Register(subscriber)
 
 		defer func() {
-			m.Unregister(subscriber)
+			m.Unregister(subscriber)			
 		}()
 
 		go func() {
