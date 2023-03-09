@@ -59,12 +59,14 @@ func (s *ceSubscriberImpl) Tenants() []string {
 func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
 	return s.inbox
 }
-func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) {
+func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
 	if m.Type() != s.messageType {
-		return
+		return false
 	}
 
 	s.inbox <- m
+
+	return true
 }
 
 func (s *ceSubscriberImpl) run(m mediator.Mediator) {

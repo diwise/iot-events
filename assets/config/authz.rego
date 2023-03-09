@@ -11,7 +11,7 @@ allow = response {
 
     input.method == "GET"
     pathstart := array.slice(input.path, 0, 2)
-    pathstart == ["api", "events"]
+    pathstart == ["api", "v0"]
 
     response := {
         "tenants": token.payload.tenants

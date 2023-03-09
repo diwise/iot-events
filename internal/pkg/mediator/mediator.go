@@ -3,6 +3,7 @@ package mediator
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -13,6 +14,7 @@ type Message interface {
 	Type() string
 	Data() []byte
 	Tenant() string
+	Retry() int
 	Timestamp() time.Time
 }
 
@@ -21,15 +23,17 @@ type messageImpl struct {
 	Name_      string    `json:"name"`
 	Tenant_    string    `json:"tenant"`
 	Data_      []byte    `json:"data"`
+	Retry_     int       `json:"retry"`
 	Timestamp_ time.Time `json:"timestamp"`
 }
 
 func NewMessage(id, name, tenant string, data []byte) Message {
 	return &messageImpl{
-		Id_:        id,
-		Name_:      name,
-		Tenant_:    tenant,
-		Data_:      data,
+		Id_:     id,
+		Name_:   name,
+		Tenant_: tenant,
+		Data_:   data,
+		Retry_: 0,
 		Timestamp_: time.Now().UTC(),
 	}
 }
@@ -50,6 +54,10 @@ func (m *messageImpl) Tenant() string {
 	return m.Tenant_
 }
 
+func (m *messageImpl) Retry() int {
+	return m.Retry_
+}
+
 func (m *messageImpl) Timestamp() time.Time {
 	return m.Timestamp_
 }
@@ -58,7 +66,7 @@ type Subscriber interface {
 	ID() string
 	Tenants() []string
 	Mailbox() chan Message
-	AcceptIfValid(m Message)
+	AcceptIfValid(m Message) bool
 }
 
 type subscriberImpl struct {
@@ -88,12 +96,14 @@ func (s *subscriberImpl) Tenants() []string {
 func (s *subscriberImpl) Mailbox() chan Message {
 	return s.inbox
 }
-func (s *subscriberImpl) AcceptIfValid(m Message) {
+func (s *subscriberImpl) AcceptIfValid(m Message) bool {
 	for _, t := range s.tenants {
 		if t == m.Tenant() {
 			s.inbox <- m
+			return true
 		}
 	}
+	return false
 }
 
 type Mediator interface {
@@ -128,10 +138,17 @@ func (m *mediatorImpl) Unregister(s Subscriber) {
 	m.unregister <- s
 }
 func (m *mediatorImpl) Publish(msg Message) {
-	m.logger.Debug().Msgf("publish message %s:%s", msg.Type(), msg.ID())
+	m.logger.Debug().Msgf("publish message %s:%s to tenant %s", msg.Type(), msg.ID(), msg.Tenant())
 	m.inbox <- msg
 }
 func (m *mediatorImpl) Start(ctx context.Context) {
+	tenants := func(s []string) string {
+		if len(s) == 0 {
+			return ""
+		}
+		return strings.Join(s, ",")
+	}
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -139,13 +156,15 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 			return
 		case s := <-m.register:
 			m.subscribers[s.ID()] = s
-			m.logger.Debug().Msgf("register new subscriber %s. len: %d", s.ID(), len(m.subscribers))
+			m.logger.Debug().Msgf("register new subscriber %s, tenants: %s. len: %d", s.ID(), tenants(s.Tenants()), len(m.subscribers))
 		case s := <-m.unregister:
 			delete(m.subscribers, s.ID())
 			m.logger.Debug().Msgf("unregister subscriber %s. len: %d", s.ID(), len(m.subscribers))
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
-				s.AcceptIfValid(msg)
+				if !s.AcceptIfValid(msg) {
+					m.logger.Debug().Msgf("message not accepted or valid for %s", s.ID())
+				}
 			}
 		}
 	}

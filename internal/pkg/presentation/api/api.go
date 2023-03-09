@@ -1,7 +1,8 @@
 package api
 
 import (
-	"context"
+	//"context"
+	"bytes"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -35,14 +36,14 @@ func New(serviceName string, mediator mediator.Mediator, policies io.Reader, log
 		w.WriteHeader(http.StatusOK)
 	})
 
-	r.Route("/api", func(r chi.Router) {
+	r.Route("/api/v0", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
-			authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
-			if err != nil {
-				logger.Fatal().Err(err).Msg("failed to create api authenticator")
-			}
+			//authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
+			//if err != nil {
+			//	logger.Fatal().Err(err).Msg("failed to create api authenticator")
+			//}
 
-			r.Use(authenticator)
+			//r.Use(authenticator)
 			r.Get("/events", EventSource(mediator, logger))
 		})
 
@@ -66,6 +67,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
@@ -74,7 +76,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 		m.Register(subscriber)
 
 		defer func() {
-			m.Unregister(subscriber)			
+			m.Unregister(subscriber)
 		}()
 
 		go func() {
@@ -82,9 +84,15 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 			m.Unregister(subscriber)
 		}()
 
+		w.WriteHeader(http.StatusOK)
+		flusher.Flush()
+
 		for {
-			m := <-subscriber.Mailbox()
-			fmt.Fprint(w, formatMessage(m))
+			msg := <-subscriber.Mailbox()
+
+			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
+
+			w.Write(formatMessage(msg))			
 			flusher.Flush()
 		}
 	}
@@ -101,23 +109,29 @@ func KeepAlive(m mediator.Mediator) {
 	}()
 }
 
-func formatMessage(m mediator.Message) string {
-	msg := ""
+func formatMessage(m mediator.Message) []byte {
+	var buffer bytes.Buffer
 
-	if m.ID() != "" {
-		msg = msg + "id: " + m.ID() + "\n"
+	if len(m.ID()) > 0 {
+		buffer.WriteString(fmt.Sprintf("id: %s\n", m.ID()))
 	}
-	if m.Type() != "" {
-		msg = msg + "event: " + m.Type() + "\n"
+
+	if m.Retry() > 0 {
+		buffer.WriteString(fmt.Sprintf("retry: %d\n", m.Retry()))
 	}
+
+	if len(m.Type()) > 0 {
+		buffer.WriteString(fmt.Sprintf("event: %s\n", m.Type()))
+	}
+
 	if m.Data() != nil {
 		b64 := base64.StdEncoding.EncodeToString(m.Data())
-		msg = msg + "data: " + b64 + "\n"
+		buffer.WriteString(fmt.Sprintf("data: %s\n", b64))
 	}
 
-	msg = msg + "\n"
+	buffer.WriteString("\n")
 
-	return msg
+	return buffer.Bytes()
 }
 
 func Push(m mediator.Mediator) http.HandlerFunc {
