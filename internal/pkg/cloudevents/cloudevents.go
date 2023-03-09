@@ -78,6 +78,8 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator) {
 			s.logger.Debug().Msg("Done!")
 			return
 		case msg := <-s.inbox:
+			s.logger.Debug().Msgf("handle message %s:%s", msg.Type(), msg.ID())
+
 			c, err := cloud.NewClientHTTP()
 			if err != nil {
 				s.logger.Error().Err(err).Msg("could not create cloud events client")
@@ -99,7 +101,6 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator) {
 			err = event.SetData(cloud.ApplicationJSON, ds)
 			if err != nil {
 				s.logger.Error().Err(err).Msg("failed to set data")
-				s.done <- true
 				break
 			}
 
