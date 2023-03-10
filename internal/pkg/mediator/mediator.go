@@ -29,11 +29,11 @@ type messageImpl struct {
 
 func NewMessage(id, name, tenant string, data []byte) Message {
 	return &messageImpl{
-		Id_:     id,
-		Name_:   name,
-		Tenant_: tenant,
-		Data_:   data,
-		Retry_: 0,
+		Id_:        id,
+		Name_:      name,
+		Tenant_:    tenant,
+		Data_:      data,
+		Retry_:     0,
 		Timestamp_: time.Now().UTC(),
 	}
 }

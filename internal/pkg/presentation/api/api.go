@@ -92,7 +92,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 
 			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
 
-			w.Write(formatMessage(msg))			
+			w.Write(formatMessage(msg))
 			flusher.Flush()
 		}
 	}

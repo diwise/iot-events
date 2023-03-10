@@ -29,7 +29,7 @@ func main() {
 	var cloudeventsConfigFilePath string
 	var opaFilePath string
 
-	flag.StringVar(&cloudeventsConfigFilePath, "notifications", "/opt/diwise/config/cloudevents.yaml", "Configuration file for cloudevents")
+	flag.StringVar(&cloudeventsConfigFilePath, "cloudevents", "/opt/diwise/config/cloudevents.yaml", "Configuration file for cloudevents")
 	flag.StringVar(&opaFilePath, "policies", "/opt/diwise/config/authz.rego", "An authorization policy file")
 	flag.Parse()
 
