@@ -58,7 +58,7 @@ func main() {
 
 	topic := env.GetVariableOrDefault(logger, "RABBITMQ_TOPIC", "#")
 
-	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator))
+	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator, logger))
 
 	cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator, logger)
 

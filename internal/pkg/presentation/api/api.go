@@ -1,8 +1,8 @@
 package api
 
 import (
-	//"context"
 	"bytes"
+	"context"
 	"encoding/base64"
 	"fmt"
 	"io"
@@ -38,12 +38,12 @@ func New(serviceName string, mediator mediator.Mediator, policies io.Reader, log
 
 	r.Route("/api/v0", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
-			//authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
-			//if err != nil {
-			//	logger.Fatal().Err(err).Msg("failed to create api authenticator")
-			//}
+			authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
+			if err != nil {
+				logger.Fatal().Err(err).Msg("failed to create api authenticator")
+			}
 
-			//r.Use(authenticator)
+			r.Use(authenticator)
 			r.Get("/events", EventSource(mediator, logger))
 		})
 
@@ -92,7 +92,11 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 
 			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
 
-			w.Write(formatMessage(msg))
+			_, err := w.Write(formatMessage(msg))
+			if err != nil {
+				logger.Error().Err(err).Msg("could not write to response")
+			}
+
 			flusher.Flush()
 		}
 	}
