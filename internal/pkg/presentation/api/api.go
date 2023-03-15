@@ -46,8 +46,6 @@ func New(serviceName string, mediator mediator.Mediator, policies io.Reader, log
 			r.Use(authenticator)
 			r.Get("/events", EventSource(mediator, logger))
 		})
-
-		r.Post("/push", Push(mediator))
 	})
 
 	KeepAlive(mediator)
@@ -136,18 +134,4 @@ func formatMessage(m mediator.Message) []byte {
 	buffer.WriteString("\n")
 
 	return buffer.Bytes()
-}
-
-func Push(m mediator.Mediator) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		m.Publish(mediator.NewMessage("", "", "default", body))
-
-		w.WriteHeader(http.StatusOK)
-	}
 }
