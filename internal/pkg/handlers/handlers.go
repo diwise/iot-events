@@ -25,7 +25,7 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 		}
 
 		if msg.Tenant == nil {
-			logger.Info().Msgf("message %s from %s contains no tenant information", d.MessageId, d.RoutingKey)
+			logger.Info().Msgf("message type %s contains no tenant information", d.RoutingKey)
 			return
 		}
 

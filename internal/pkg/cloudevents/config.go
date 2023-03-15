@@ -11,24 +11,19 @@ type EntityInfo struct {
 	IDPattern string `yaml:"idPattern"`
 }
 
-type RegistrationInfo struct {
-	Entities []EntityInfo `yaml:"entities"`
-}
-
-type SubscriberConfig struct {
-	Endpoint    string             `yaml:"endpoint"`
-	Information []RegistrationInfo `yaml:"information"`
-}
-
-type Notification struct {
-	ID          string             `yaml:"id"`
-	Name        string             `yaml:"name"`
-	Type        string             `yaml:"type"`
-	Subscribers []SubscriberConfig `yaml:"subscribers"`
+type Subscriber struct {
+	ID        string       `yaml:"id"`
+	Name      string       `yaml:"name"`
+	Type      string       `yaml:"type"`
+	Endpoint  string       `yaml:"endpoint"`
+	Tenants   []string     `yaml:"tenants"`
+	Entities  []EntityInfo `yaml:"entities"`
+	Source    string       `yaml:"source"`
+	EventType string       `yaml:"eventType"`
 }
 
 type Config struct {
-	Notifications []Notification `yaml:"notifications"`
+	Subscribers []Subscriber `yaml:"subscribers"`
 }
 
 func LoadConfiguration(data io.Reader) (*Config, error) {

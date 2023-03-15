@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
@@ -17,37 +19,55 @@ import (
 type CloudEvents interface{}
 type cloudeventsImpl struct{}
 
+type CloudEventSenderFunc = func(e event) error
+
+var ErrCloudEventClientError = fmt.Errorf("could not create cloud event client")
+var ErrMessageBadFormat = fmt.Errorf("could not set data")
+var ErrConnRefused = fmt.Errorf("connection refused")
+
 func New(config *Config, m mediator.Mediator, logger zerolog.Logger) CloudEvents {
-	for _, n := range config.Notifications {
-		for i, s := range n.Subscribers {
-			sId := fmt.Sprintf("cloud-events-%s-%d", n.ID, i)
-			logger = logger.With().Str("subscriber_id", sId).Str("endpoint", s.Endpoint).Logger()
-			subscriber := &ceSubscriberImpl{
-				id:          sId,
-				inbox:       make(chan mediator.Message),
-				tenants:     []string{"default"},
-				endpoint:    s.Endpoint,
-				messageType: n.Type,
-				logger:      logger,
-			}
+	for i, s := range config.Subscribers {
 
-			m.Register(subscriber)
+		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
+		logger = logger.With().Str("subscriber_id", sId).Str("endpoint", s.Endpoint).Logger()
 
-			go subscriber.run(m)
+		var idPatterns []string
+		for _, e := range s.Entities {
+			idPatterns = append(idPatterns, e.IDPattern)
 		}
+
+		subscriber := &ceSubscriberImpl{
+			id:          sId,
+			inbox:       make(chan mediator.Message),
+			tenants:     s.Tenants,
+			endpoint:    s.Endpoint,
+			messageType: s.Type,
+			logger:      logger,
+			idPatterns:  idPatterns,
+			source:      s.Source,
+			eventType:   s.EventType,
+		}
+
+		m.Register(subscriber)
+
+		go subscriber.run(m, cloudEventSenderFunc)
+
 	}
 
 	return &cloudeventsImpl{}
 }
 
 type ceSubscriberImpl struct {
-	id          string
-	tenants     []string
-	inbox       chan mediator.Message
-	endpoint    string
-	messageType string
 	done        chan bool
+	endpoint    string
+	id          string
+	idPatterns  []string
+	inbox       chan mediator.Message
 	logger      zerolog.Logger
+	messageType string
+	tenants     []string
+	source      string
+	eventType   string
 }
 
 func (s *ceSubscriberImpl) ID() string {
@@ -69,64 +89,134 @@ func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
 	return true
 }
 
-func (s *ceSubscriberImpl) run(m mediator.Mediator) {
+func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {
 	defer func() {
 		m.Unregister(s)
 	}()
 
+	contains := func(arr []string, str string) bool {
+		for _, s := range arr {
+			if strings.EqualFold(s, str) {
+				return true
+			}
+		}
+		return false
+	}
+
+	matchIfNotEmpty := func(idPatterns []string, id string) bool {
+		if len(idPatterns) == 0 {
+			return true // no configured id pattern will allow all id's
+		}
+
+		for _, idPattern := range s.idPatterns {
+			regexpForID, err := regexp.CompilePOSIX(idPattern)
+			if err != nil {
+				return false
+			}
+
+			if regexpForID.MatchString(id) {
+				return true
+			}
+		}
+
+		return false
+	}
+
 	for {
 		select {
-		case <-s.done:
-			s.logger.Debug().Msg("Done!")
+		case b := <-s.done:
+			s.logger.Debug().Msgf("Done! %t", b)
 			return
 		case msg := <-s.inbox:
 			s.logger.Debug().Msgf("handle message %s:%s", msg.Type(), msg.ID())
 
-			c, err := cloud.NewClientHTTP()
-			if err != nil {
-				s.logger.Error().Err(err).Msg("could not create cloud events client")
+			if !contains(s.tenants, msg.Tenant()) {
+				s.logger.Debug().Msg("tenant not supported by this subscriber")
 				break
 			}
 
-			var ds DeviceStatusUpdated
-			err = json.Unmarshal(msg.Data(), &ds)
+			messageBody := messageBody{}
+			err := json.Unmarshal(msg.Data(), &messageBody)
 			if err != nil {
-				s.logger.Error().Err(err).Msg("failed to unmarshal DeviceStatusUpdated")
+				s.logger.Error().Err(err).Msg("could not unmarshal message body")
 				break
 			}
 
-			event := cloud.NewEvent()
-			event.SetID(fmt.Sprintf("%s:%d", ds.DeviceID, ds.Timestamp.Unix()))
-			event.SetTime(ds.Timestamp)
-			event.SetSource("github.com/diwise/iot-device-mgmt")
-			event.SetType("diwise.statusmessage")
-			err = event.SetData(cloud.ApplicationJSON, ds)
-			if err != nil {
-				s.logger.Error().Err(err).Msg("failed to set data")
+			if messageBody.DeviceID == nil {
+				s.logger.Error().Msg("message body missing property deviceID")
 				break
 			}
 
-			ctx := cloud.ContextWithTarget(context.Background(), s.endpoint)
-			result := c.Send(ctx, event)
-			if cloud.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
-				err = fmt.Errorf("%w", result)
-				s.logger.Error().Err(err).Msg("faild to send message")
-				s.done <- true
+			deviceID := *messageBody.DeviceID
+			timestamp := time.Now().UTC()
+			if messageBody.Timestamp != nil {
+				timestamp = *messageBody.Timestamp
+			}
+
+			if !matchIfNotEmpty(s.idPatterns, *messageBody.DeviceID) {
+				s.logger.Debug().Msgf("no matching id pattern for deviceID %s", deviceID)
+				break
+			}
+
+			err = eventSenderFunc(event{
+				deviceID:  deviceID,
+				timestamp: timestamp,
+				source:    s.source,
+				eventType: s.eventType,
+				endpoint:  s.endpoint,
+				data:      msg.Data(),
+			})
+
+			if err != nil {
+				s.logger.Error().Err(err).Msg("failed to send event")
+				if errors.Is(err, ErrCloudEventClientError) {
+					return
+				}
+				if errors.Is(err, ErrConnRefused) {
+					return
+				}
 			}
 		}
 	}
 }
 
-type DeviceStatusUpdated struct {
-	DeviceID     string       `json:"deviceID"`
-	DeviceStatus DeviceStatus `json:"status"`
-	Timestamp    time.Time    `json:"timestamp"`
+func cloudEventSenderFunc(e event) error {
+	c, err := cloud.NewClientHTTP()
+	if err != nil {
+		return ErrCloudEventClientError
+	}
+
+	id := fmt.Sprintf("%s:%d", e.deviceID, e.timestamp.Unix())
+
+	event := cloud.NewEvent()
+	event.SetID(id)
+	event.SetTime(e.timestamp)
+	event.SetSource(e.source)
+	event.SetType(e.eventType)
+	err = event.SetData(cloud.ApplicationJSON, e.data)
+	if err != nil {
+		return ErrMessageBadFormat
+	}
+
+	ctx := cloud.ContextWithTarget(context.Background(), e.endpoint)
+	result := c.Send(ctx, event)
+	if cloud.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
+		return ErrConnRefused
+	}
+
+	return nil
 }
 
-type DeviceStatus struct {
-	DeviceID     string   `json:"deviceID,omitempty"`
-	BatteryLevel int      `json:"batteryLevel"`
-	Code         int      `json:"statusCode"`
-	Messages     []string `json:"statusMessages,omitempty"`
-	Timestamp    string   `json:"timestamp"`
+type event struct {
+	deviceID  string
+	timestamp time.Time
+	source    string
+	eventType string
+	endpoint  string
+	data      []byte
+}
+
+type messageBody struct {
+	DeviceID  *string    `json:"deviceID,omitempty"`
+	Timestamp *time.Time `json:"timestamp,omitempty"`
 }

@@ -106,6 +106,8 @@ func (s *subscriberImpl) AcceptIfValid(m Message) bool {
 	return false
 }
 
+//go:generate moq -rm -out mediator_mock.go . Mediator
+
 type Mediator interface {
 	Register(subscriber Subscriber)
 	Unregister(subscriber Subscriber)

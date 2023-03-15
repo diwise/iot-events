@@ -1,9 +1,12 @@
-notifications:
+subscribers:
   - id: qalcosonic
     name: Qalcosonic W1 StatusCodes
     type: device.statusUpdated
-    subscribers:
-    - endpoint: http://localhost:8091/api/cloudevents
-      information:
-      - entities:
-        - idPattern: ^urn:ngsi-ld:Device:.+
+    endpoint: http://localhost:8091/api/cloudevents
+    source: github.com/diwise/iot-device-mgmt
+    eventType: diwise.statusmessage
+    tenants:
+      - default
+      - test
+    entities:
+      - idPattern: ^urn:ngsi-ld:Device:.+

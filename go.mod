@@ -59,6 +59,7 @@ require (
 require (
 	github.com/cloudevents/sdk-go/v2 v2.13.0
 	github.com/diwise/messaging-golang v0.0.0-20230112181152-6d313f5f9451
+	github.com/matryer/is v1.4.1
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.17 // indirect
 	github.com/open-policy-agent/opa v0.49.2
