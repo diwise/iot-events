@@ -2,10 +2,10 @@ package mediator
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
 
@@ -80,8 +80,10 @@ func NewSubscriber(tenants []string) Subscriber {
 		tenants = append(tenants, "default")
 	}
 
+	id := uuid.New().String()
+
 	return &subscriberImpl{
-		id:      fmt.Sprintf("%d", time.Now().Unix()),
+		id:      id,
 		inbox:   make(chan Message),
 		tenants: tenants,
 	}
