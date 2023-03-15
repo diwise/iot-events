@@ -172,6 +172,17 @@ func TestShouldBeSent(t *testing.T) {
 	is.Equal(1, calls)
 }
 
+func TestNewWithEmptyConfig(t *testing.T) {
+	is := is.New(t)
+	m := mediator.MediatorMock{
+		RegisterFunc: func(subscriber mediator.Subscriber) {},
+	}
+	c := New(LoadConfigurationFromFile(""), &m, zerolog.Logger{})
+	is.True(c != nil)
+
+	is.Equal(0, len(m.RegisterCalls()))
+}
+
 func testSetup(t *testing.T) (*is.I, *ceSubscriberImpl) {
 	is := is.New(t)
 
