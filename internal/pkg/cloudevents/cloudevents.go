@@ -19,7 +19,7 @@ import (
 type CloudEvents interface{}
 type cloudeventsImpl struct{}
 
-type CloudEventSenderFunc = func(e event) error
+type CloudEventSenderFunc = func(e eventInfo) error
 
 var ErrCloudEventClientError = fmt.Errorf("could not create cloud event client")
 var ErrMessageBadFormat = fmt.Errorf("could not set data")
@@ -39,6 +39,7 @@ func New(config *Config, m mediator.Mediator, logger zerolog.Logger) CloudEvents
 		subscriber := &ceSubscriberImpl{
 			id:          sId,
 			inbox:       make(chan mediator.Message),
+			done:        make(chan bool),
 			tenants:     s.Tenants,
 			endpoint:    s.Endpoint,
 			messageType: s.Type,
@@ -142,24 +143,30 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 				break
 			}
 
-			if messageBody.DeviceID == nil {
-				s.logger.Error().Msg("message body missing property deviceID")
+			var id string
+			if messageBody.DeviceID != nil {
+				id = *messageBody.DeviceID
+			} else if messageBody.FunctionID != nil {
+				id = *messageBody.FunctionID
+			}
+
+			if id == "" {
+				s.logger.Error().Msg("message body missing id property")
 				break
 			}
 
-			deviceID := *messageBody.DeviceID
 			timestamp := time.Now().UTC()
 			if messageBody.Timestamp != nil {
 				timestamp = *messageBody.Timestamp
 			}
 
-			if !matchIfNotEmpty(s.idPatterns, *messageBody.DeviceID) {
-				s.logger.Debug().Msgf("no matching id pattern for deviceID %s", deviceID)
+			if !matchIfNotEmpty(s.idPatterns, id) {
+				s.logger.Debug().Msgf("no matching id pattern for %s", id)
 				break
 			}
 
-			err = eventSenderFunc(event{
-				deviceID:  deviceID,
+			err = eventSenderFunc(eventInfo{
+				id:        id,
 				timestamp: timestamp,
 				source:    s.source,
 				eventType: s.eventType,
@@ -170,35 +177,35 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			if err != nil {
 				s.logger.Error().Err(err).Msg("failed to send event")
 				if errors.Is(err, ErrCloudEventClientError) {
-					return
+					s.done <- true
 				}
 				if errors.Is(err, ErrConnRefused) {
-					return
+					s.done <- true
 				}
 			}
 		}
 	}
 }
 
-func cloudEventSenderFunc(e event) error {
+func cloudEventSenderFunc(evt eventInfo) error {
 	c, err := cloud.NewClientHTTP()
 	if err != nil {
 		return ErrCloudEventClientError
 	}
 
-	id := fmt.Sprintf("%s:%d", e.deviceID, e.timestamp.Unix())
+	id := fmt.Sprintf("%s:%d", evt.id, evt.timestamp.Unix())
 
 	event := cloud.NewEvent()
 	event.SetID(id)
-	event.SetTime(e.timestamp)
-	event.SetSource(e.source)
-	event.SetType(e.eventType)
-	err = event.SetData(cloud.ApplicationJSON, e.data)
+	event.SetTime(evt.timestamp)
+	event.SetSource(evt.source)
+	event.SetType(evt.eventType)
+	err = event.SetData(cloud.ApplicationJSON, evt.data)
 	if err != nil {
 		return ErrMessageBadFormat
 	}
 
-	ctx := cloud.ContextWithTarget(context.Background(), e.endpoint)
+	ctx := cloud.ContextWithTarget(context.Background(), evt.endpoint)
 	result := c.Send(ctx, event)
 	if cloud.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
 		return ErrConnRefused
@@ -207,8 +214,8 @@ func cloudEventSenderFunc(e event) error {
 	return nil
 }
 
-type event struct {
-	deviceID  string
+type eventInfo struct {
+	id        string
 	timestamp time.Time
 	source    string
 	eventType string
@@ -217,6 +224,7 @@ type event struct {
 }
 
 type messageBody struct {
-	DeviceID  *string    `json:"deviceID,omitempty"`
-	Timestamp *time.Time `json:"timestamp,omitempty"`
+	FunctionID *string    `json:"id,omitempty"`
+	DeviceID   *string    `json:"deviceID,omitempty"`
+	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }

@@ -68,7 +68,7 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e event) error {
+	go subscriber.run(&m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -88,7 +88,7 @@ func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e event) error {
+	go subscriber.run(&m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -111,7 +111,7 @@ func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e event) error {
+	go subscriber.run(&m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -161,12 +161,43 @@ func TestShouldBeSent(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e event) error {
+	go subscriber.run(&m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
 
 	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
+	subscriber.done <- true
+
+	is.Equal(1, calls)
+}
+
+func TestShouldBeSentForSecondPattern(t *testing.T) {
+	is, subscriber := testSetup(t)
+
+	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Device:.+")
+	subscriber.idPatterns = append(subscriber.idPatterns, "^se:servanet:lora:msva:.+")
+	subscriber.tenants = append(subscriber.tenants, "default")
+
+	m := mediator.MediatorMock{
+		UnregisterFunc: func(subscriber mediator.Subscriber) {},
+	}
+
+	var calls int = 0
+
+	go subscriber.run(&m, func(e eventInfo) error {
+		calls++
+		return nil
+	})
+
+	msg := newDeviceStatusUpdated(time.Now())
+	var dsu DeviceStatusUpdated
+	json.Unmarshal(msg, &dsu)
+
+	dsu.DeviceID = "se:servanet:lora:msva:05598380"
+	b, _ := json.Marshal(dsu)
+
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", b)
 	subscriber.done <- true
 
 	is.Equal(1, calls)
