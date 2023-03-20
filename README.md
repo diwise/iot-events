@@ -21,7 +21,7 @@ launch.json
                 "RABBITMQ_DISABLED": "true"
             },
             "args": [
-                "--notifications=${workspaceFolder}/assets/config/notifications.yaml"
+                "--notifications=${workspaceFolder}/assets/config/cloudevents.yaml"
             ]
         }
     ]
