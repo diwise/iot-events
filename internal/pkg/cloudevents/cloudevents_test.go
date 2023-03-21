@@ -22,13 +22,13 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	ctx := context.Background()
 	defer ctx.Done()
 
-	var unlock bool = false
-	var body []byte
+	resultChan := make(chan string)
+
 	var err error
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		body, _ = io.ReadAll(r.Body)
-		unlock = true
+		body, _ := io.ReadAll(r.Body)
+		resultChan <- string(body)
 	}))
 	defer server.Close()
 
@@ -49,14 +49,10 @@ func TestThatCloudEventIsSent(t *testing.T) {
 
 	m.Publish(mediator.NewMessage("messageID", "device.statusUpdated", "default", ds))
 
-	for {
-		if unlock {
-			break
-		}
-	}
+	result := <-resultChan
 
 	expected := fmt.Sprintf(`{"deviceID":"urn:ngsi-ld:Device:01","status":{"deviceID":"urn:ngsi-ld:Device:01","batteryLevel":0,"statusCode":0,"timestamp":"%s"},"tenant":"default","timestamp":"%s"}`, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
-	is.Equal(expected, string(body))
+	is.Equal(expected, result)
 }
 
 func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
