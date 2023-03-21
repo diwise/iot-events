@@ -19,6 +19,8 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build
 FROM registry.access.redhat.com/ubi8/ubi-minimal
 WORKDIR /opt/diwise
 
+LABEL org.opencontainers.image.source = "https://github.com/diwise/iot-events"
+
 COPY --from=builder --chown=1001 /app/cmd/iot-events/iot-events /opt/diwise
 COPY --chown=1001 assets/config/authz.rego /opt/diwise/config/authz.rego
 
