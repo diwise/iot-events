@@ -2,6 +2,7 @@ package mediator
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,36 +17,36 @@ func TestThatTheInnerLoopStopsWhenContextIsDone(t *testing.T) {
 	ctx.Done()
 }
 
+func TestThatSubscriberCountIsZeroAtStartup(t *testing.T) {
+	is, ctx, m := testSetup(t)
+	is.Equal(0, m.SubscriberCount())
+	ctx.Done()
+}
+
 func TestRegisterSubscribers(t *testing.T) {
 	is, ctx, m := testSetup(t)
 
 	impl := m.(*mediatorImpl)
-	is.Equal(0, len(impl.subscribers))
 
 	s := NewSubscriber([]string{"default"})
 	m.Register(s)
 	time.Sleep(SleepForMs)
 
-	is.Equal(1, len(impl.subscribers))
+	is.Equal(1, impl.SubscriberCount())
 
 	ctx.Done()
 }
 
 func TestUnregisterSubscribers(t *testing.T) {
 	is, ctx, m := testSetup(t)
-
 	impl := m.(*mediatorImpl)
-	is.Equal(0, len(impl.subscribers))
-
 	s := NewSubscriber([]string{"default"})
-	m.Register(s)
 
-	is.Equal(1, len(impl.subscribers))
+	m.Register(s)
+	is.Equal(1, impl.SubscriberCount())
 
 	m.Unregister(s)
-	time.Sleep(SleepForMs) // TODO: ...
-
-	is.Equal(0, len(impl.subscribers))
+	is.Equal(0, impl.SubscriberCount())
 
 	ctx.Done()
 }
@@ -53,14 +54,11 @@ func TestUnregisterSubscribers(t *testing.T) {
 func TestPublishToValidSubscribers(t *testing.T) {
 	is, ctx, m := testSetup(t)
 
-	impl := m.(*mediatorImpl)
-	is.Equal(0, len(impl.subscribers))
-
 	valid := NewSubscriber([]string{"default"})
 	invalid := NewSubscriber([]string{"unknown"})
 
-	var validCalls = 0
-	var invalidCalls = 0
+	validCalls := &atomic.Int32{}
+	invalidCalls := &atomic.Int32{}
 
 	go func() {
 		for {
@@ -68,9 +66,9 @@ func TestPublishToValidSubscribers(t *testing.T) {
 			case <-ctx.Done():
 				return
 			case <-valid.Mailbox():
-				validCalls++
+				validCalls.Add(1)
 			case <-invalid.Mailbox():
-				invalidCalls++
+				invalidCalls.Add(1)
 			}
 		}
 	}()
@@ -84,8 +82,8 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 	time.Sleep(SleepForMs)
 
-	is.Equal(1, validCalls)
-	is.Equal(0, invalidCalls)
+	is.Equal(int32(1), validCalls.Load())
+	is.Equal(int32(0), invalidCalls.Load())
 
 	ctx.Done()
 }

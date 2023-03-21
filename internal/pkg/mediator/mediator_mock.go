@@ -27,6 +27,9 @@ var _ Mediator = &MediatorMock{}
 //			StartFunc: func(ctx context.Context)  {
 //				panic("mock out the Start method")
 //			},
+//			SubscriberCountFunc: func() int {
+//				panic("mock out the SubscriberCount method")
+//			},
 //			UnregisterFunc: func(subscriber Subscriber)  {
 //				panic("mock out the Unregister method")
 //			},
@@ -45,6 +48,9 @@ type MediatorMock struct {
 
 	// StartFunc mocks the Start method.
 	StartFunc func(ctx context.Context)
+
+	// SubscriberCountFunc mocks the SubscriberCount method.
+	SubscriberCountFunc func() int
 
 	// UnregisterFunc mocks the Unregister method.
 	UnregisterFunc func(subscriber Subscriber)
@@ -66,16 +72,20 @@ type MediatorMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
+		// SubscriberCount holds details about calls to the SubscriberCount method.
+		SubscriberCount []struct {
+		}
 		// Unregister holds details about calls to the Unregister method.
 		Unregister []struct {
 			// Subscriber is the subscriber argument value.
 			Subscriber Subscriber
 		}
 	}
-	lockPublish    sync.RWMutex
-	lockRegister   sync.RWMutex
-	lockStart      sync.RWMutex
-	lockUnregister sync.RWMutex
+	lockPublish         sync.RWMutex
+	lockRegister        sync.RWMutex
+	lockStart           sync.RWMutex
+	lockSubscriberCount sync.RWMutex
+	lockUnregister      sync.RWMutex
 }
 
 // Publish calls PublishFunc.
@@ -171,6 +181,33 @@ func (mock *MediatorMock) StartCalls() []struct {
 	mock.lockStart.RLock()
 	calls = mock.calls.Start
 	mock.lockStart.RUnlock()
+	return calls
+}
+
+// SubscriberCount calls SubscriberCountFunc.
+func (mock *MediatorMock) SubscriberCount() int {
+	if mock.SubscriberCountFunc == nil {
+		panic("MediatorMock.SubscriberCountFunc: method is nil but Mediator.SubscriberCount was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockSubscriberCount.Lock()
+	mock.calls.SubscriberCount = append(mock.calls.SubscriberCount, callInfo)
+	mock.lockSubscriberCount.Unlock()
+	return mock.SubscriberCountFunc()
+}
+
+// SubscriberCountCalls gets all the calls that were made to SubscriberCount.
+// Check the length with:
+//
+//	len(mockedMediator.SubscriberCountCalls())
+func (mock *MediatorMock) SubscriberCountCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockSubscriberCount.RLock()
+	calls = mock.calls.SubscriberCount
+	mock.lockSubscriberCount.RUnlock()
 	return calls
 }
 

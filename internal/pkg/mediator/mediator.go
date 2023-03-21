@@ -115,23 +115,30 @@ type Mediator interface {
 	Unregister(subscriber Subscriber)
 	Publish(message Message)
 	Start(ctx context.Context)
+	SubscriberCount() int
 }
 
 type mediatorImpl struct {
-	inbox       chan Message
-	register    chan Subscriber
-	unregister  chan Subscriber
+	inbox      chan Message
+	register   chan Subscriber
+	unregister chan Subscriber
+
 	subscribers map[string]Subscriber
-	logger      zerolog.Logger
+	subscount   chan chan int
+
+	logger zerolog.Logger
 }
 
 func New(logger zerolog.Logger) Mediator {
 	return &mediatorImpl{
-		inbox:       make(chan Message, 1),
-		register:    make(chan Subscriber),
-		unregister:  make(chan Subscriber),
+		inbox:      make(chan Message, 1),
+		register:   make(chan Subscriber),
+		unregister: make(chan Subscriber),
+
 		subscribers: map[string]Subscriber{},
-		logger:      logger,
+		subscount:   make(chan chan int),
+
+		logger: logger,
 	}
 }
 
@@ -141,6 +148,12 @@ func (m *mediatorImpl) Register(s Subscriber) {
 func (m *mediatorImpl) Unregister(s Subscriber) {
 	m.unregister <- s
 }
+func (m *mediatorImpl) SubscriberCount() int {
+	result := make(chan int)
+	m.subscount <- result
+	return <-result
+}
+
 func (m *mediatorImpl) Publish(msg Message) {
 	m.logger.Debug().Msgf("publish message %s:%s to tenant %s", msg.Type(), msg.ID(), msg.Tenant())
 	m.inbox <- msg
@@ -164,6 +177,8 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 		case s := <-m.unregister:
 			delete(m.subscribers, s.ID())
 			m.logger.Debug().Msgf("unregister subscriber %s. len: %d", s.ID(), len(m.subscribers))
+		case subscriberCountQueried := <-m.subscount:
+			subscriberCountQueried <- len(m.subscribers)
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
 				if !s.AcceptIfValid(msg) {
