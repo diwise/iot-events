@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog"
 )
 
-var SleepForMs time.Duration = 100 * time.Millisecond
+const TimeUntilMessagesHaveBeenProcessed time.Duration = 100 * time.Millisecond
 
 func TestThatTheInnerLoopStopsWhenContextIsDone(t *testing.T) {
 	_, ctx, _ := testSetup(t)
@@ -30,7 +30,7 @@ func TestRegisterSubscribers(t *testing.T) {
 
 	s := NewSubscriber([]string{"default"})
 	m.Register(s)
-	time.Sleep(SleepForMs)
+	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
 	is.Equal(1, impl.SubscriberCount())
 
@@ -76,11 +76,11 @@ func TestPublishToValidSubscribers(t *testing.T) {
 	m.Register(valid)
 	m.Register(invalid)
 
-	time.Sleep(SleepForMs)
+	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
 	m.Publish(NewMessage("id", "message.type", "default", []byte("{}")))
 
-	time.Sleep(SleepForMs)
+	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
 	is.Equal(int32(1), validCalls.Load())
 	is.Equal(int32(0), invalidCalls.Load())
