@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
@@ -29,6 +30,15 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			return
 		}
 
-		m.Publish(mediator.NewMessage(d.MessageId, d.RoutingKey, *msg.Tenant, d.Body))
+		channel := getChannelName(d.RoutingKey)
+
+		m.Publish(mediator.NewMessage(d.MessageId, d.RoutingKey, *msg.Tenant, channel, d.Body))
 	}
+}
+
+func getChannelName(s string) string {
+	if strings.Contains(s, ".") {
+		return s[:strings.Index(s, ".")]
+	}
+	return ""
 }

@@ -89,6 +89,9 @@ func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
 
 	return true
 }
+func (s *ceSubscriberImpl) Channel() string {
+	return ""
+}
 
 func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {
 	defer func() {

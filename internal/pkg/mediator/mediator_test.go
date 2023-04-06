@@ -28,7 +28,7 @@ func TestRegisterSubscribers(t *testing.T) {
 
 	impl := m.(*mediatorImpl)
 
-	s := NewSubscriber([]string{"default"})
+	s := NewSubscriber([]string{"default"}, "")
 	m.Register(s)
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
@@ -40,7 +40,7 @@ func TestRegisterSubscribers(t *testing.T) {
 func TestUnregisterSubscribers(t *testing.T) {
 	is, ctx, m := testSetup(t)
 	impl := m.(*mediatorImpl)
-	s := NewSubscriber([]string{"default"})
+	s := NewSubscriber([]string{"default"}, "")
 
 	m.Register(s)
 	is.Equal(1, impl.SubscriberCount())
@@ -54,8 +54,8 @@ func TestUnregisterSubscribers(t *testing.T) {
 func TestPublishToValidSubscribers(t *testing.T) {
 	is, ctx, m := testSetup(t)
 
-	valid := NewSubscriber([]string{"default"})
-	invalid := NewSubscriber([]string{"unknown"})
+	valid := NewSubscriber([]string{"default"}, "")
+	invalid := NewSubscriber([]string{"unknown"}, "")
 
 	validCalls := &atomic.Int32{}
 	invalidCalls := &atomic.Int32{}
@@ -78,7 +78,7 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
-	m.Publish(NewMessage("id", "message.type", "default", []byte("{}")))
+	m.Publish(NewMessage("id", "message.type", "default", "", []byte("{}")))
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
@@ -86,6 +86,34 @@ func TestPublishToValidSubscribers(t *testing.T) {
 	is.Equal(int32(0), invalidCalls.Load())
 
 	ctx.Done()
+}
+
+func TestSubscriberWithChannel(t *testing.T) {
+	is, ctx, m := testSetup(t)
+
+	s := NewSubscriber([]string{"default"}, "channel")
+	calls := &atomic.Int32{}
+
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-s.Mailbox():
+				calls.Add(1)
+			}
+		}
+	}()
+
+	m.Register(s)
+
+	m.Publish(NewMessage("id", "message.type", "default", "", []byte("{}")))
+	m.Publish(NewMessage("id", "message.type", "default", "skip", []byte("{}")))
+	m.Publish(NewMessage("id", "message.type", "default", "channel", []byte("{}")))
+	
+	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
+
+	is.Equal(int32(2), calls.Load())
 }
 
 func testSetup(t *testing.T) (*is.I, context.Context, Mediator) {

@@ -69,7 +69,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
-		subscriber := mediator.NewSubscriber(allowedTenants)
+		subscriber := mediator.NewSubscriber(allowedTenants, "")
 
 		m.Register(subscriber)
 
@@ -101,7 +101,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 }
 
 func KeepAlive(m mediator.Mediator) {
-	msg := mediator.NewMessage("", "keep-alive", "default", nil)
+	msg := mediator.NewMessage("", "keep-alive", "default", "", nil)
 
 	go func() {
 		for {

@@ -47,7 +47,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 
 	ds := newDeviceStatusUpdated(now)
 
-	m.Publish(mediator.NewMessage("messageID", "device.statusUpdated", "default", ds))
+	m.Publish(mediator.NewMessage("messageID", "device.statusUpdated", "default", "", ds))
 
 	result := <-resultChan
 
@@ -69,7 +69,7 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "secret", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "secret", "", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -89,7 +89,7 @@ func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", "", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -112,7 +112,7 @@ func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", "", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -135,10 +135,10 @@ func TestOnlyAcceptIfValid(t *testing.T) {
 	}()
 
 	subscriber.messageType = "device.statusUpdated"
-	is.True(subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", "", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.messageType = "another.messageType"
-	is.True(!subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(!subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", "", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.done <- true
 
@@ -162,7 +162,7 @@ func TestShouldBeSent(t *testing.T) {
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "anotherTenant", "", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(1, calls)
@@ -193,7 +193,7 @@ func TestShouldBeSentForSecondPattern(t *testing.T) {
 	dsu.DeviceID = "se:servanet:lora:msva:05598380"
 	b, _ := json.Marshal(dsu)
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", b)
+	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", "", b)
 	subscriber.done <- true
 
 	is.Equal(1, calls)
