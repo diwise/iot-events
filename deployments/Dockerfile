@@ -16,7 +16,7 @@ ARG TARGETARCH
 ARG TARGETOS
 RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build
 
-FROM registry.access.redhat.com/ubi8/ubi-minimal
+FROM registry.access.redhat.com/ubi9/ubi-minimal
 WORKDIR /opt/diwise
 
 LABEL org.opencontainers.image.source = "https://github.com/diwise/iot-events"
