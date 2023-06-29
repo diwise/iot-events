@@ -74,8 +74,8 @@ github.com/dgraph-io/badger/v3 v3.2103.5 h1:ylPa6qzbjYRQMU6jokoj4wzcaweHylt//CH0
 github.com/dgraph-io/ristretto v0.1.1 h1:6CWw5tJNgpegArSHpNHJKldNeq03FQCwYvfMVWajOK8=
 github.com/dgryski/trifles v0.0.0-20200323201526-dd97f9abfb48 h1:fRzb/w+pyskVMQ+UbP35JkH8yB7MYb4q/qhBarqZE6g=
 github.com/dgryski/trifles v0.0.0-20200323201526-dd97f9abfb48/go.mod h1:if7Fbed8SFyPtHLHbg49SI7NAdJiC5WIA09pe59rfAA=
-github.com/diwise/messaging-golang v0.0.0-20230112181152-6d313f5f9451 h1:GhzzE21xAqakeo2GcSsPtON54p4jlVLhTnXczZZ3BKM=
-github.com/diwise/messaging-golang v0.0.0-20230112181152-6d313f5f9451/go.mod h1:pHvhFWcSLMct965DpgubvuxdKjdF1fm/Y6rFkz4dHtg=
+github.com/diwise/messaging-golang v0.0.0-20230629110556-a0ffb1bcfecc h1:RUT6LiojhivHktd5GPP6tuT4yuEPRP5gtZ2Sk3F9W9U=
+github.com/diwise/messaging-golang v0.0.0-20230629110556-a0ffb1bcfecc/go.mod h1:pHvhFWcSLMct965DpgubvuxdKjdF1fm/Y6rFkz4dHtg=
 github.com/diwise/service-chassis v0.0.0-20230307094647-77ff1c69b3f2 h1:YnYv7SPG04IdgH5lYf3iXxQq4M8CBfHjrc5sIRcp5jE=
 github.com/diwise/service-chassis v0.0.0-20230307094647-77ff1c69b3f2/go.mod h1:tk/TsBCs+uu8Gyvw7/mrbfcHtY3ygcBT1b4O2FoX6ak=
 github.com/dustin/go-humanize v1.0.0 h1:VSnTsYCnlFHaM2/igO1h6X3HA71jcobQuxemgkq4zYo=
