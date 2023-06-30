@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -85,10 +86,24 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
 
+		msgCache := make(map[string]time.Time)
+
 		for {
 			msg := <-subscriber.Mailbox()
 
-			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
+			cacheId := ""
+			m := struct {
+				DeviceID *string `json:"deviceID,omitempty"`
+			}{}
+
+			if err := json.Unmarshal(msg.Data(), &m); err == nil && m.DeviceID != nil {
+				cacheId = fmt.Sprintf("%s:%s", *m.DeviceID, msg.Type())
+				if t, ok := msgCache[cacheId]; ok {
+					if time.Now().UTC().Before(t) {
+						continue
+					}
+				}
+			}
 
 			_, err := w.Write(formatMessage(msg))
 			if err != nil {
@@ -96,6 +111,11 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 			}
 
 			flusher.Flush()
+			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
+
+			if cacheId != "" {
+				msgCache[cacheId] = time.Now().UTC().Add(30 * time.Second)
+			}
 		}
 	}
 }
