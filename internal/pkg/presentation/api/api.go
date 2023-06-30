@@ -113,7 +113,7 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 			flusher.Flush()
 			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
 
-			if len(cacheId) > 0 {
+			if cacheId != "" {
 				msgCache[cacheId] = time.Now().UTC().Add(30 * time.Second)
 			}
 		}
