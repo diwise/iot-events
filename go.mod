@@ -1,11 +1,11 @@
 module github.com/diwise/iot-events
 
-go 1.20
+go 1.21
 
 require (
 	github.com/diwise/service-chassis v0.0.0-20230811101511-c5a26dbbde2b
 	github.com/go-chi/chi/v5 v5.0.10
-	github.com/google/uuid v1.3.0
+	github.com/google/uuid v1.3.1
 	go.opentelemetry.io/otel v1.16.0
 )
 
@@ -58,8 +58,9 @@ require (
 )
 
 require (
-	github.com/cloudevents/sdk-go/v2 v2.13.0
+	github.com/cloudevents/sdk-go/v2 v2.14.0
 	github.com/diwise/messaging-golang v0.0.0-20230629110556-a0ffb1bcfecc
+	github.com/farshidtz/senml/v2 v2.0.0
 	github.com/matryer/is v1.4.1
 	github.com/mattn/go-colorable v0.1.13 // indirect
 	github.com/mattn/go-isatty v0.0.19 // indirect
