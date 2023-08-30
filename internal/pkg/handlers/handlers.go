@@ -3,7 +3,9 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"strings"
 
+	"github.com/farshidtz/senml/v2"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"github.com/rs/zerolog"
 
@@ -15,7 +17,8 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 	return func(ctx context.Context, d amqp.Delivery, l zerolog.Logger) {
 
 		msg := struct {
-			Tenant *string `json:"tenant,omitempty"`
+			Tenant *string     `json:"tenant,omitempty"`
+			Pack   *senml.Pack `json:"pack,omitempty"`
 		}{}
 
 		err := json.Unmarshal(d.Body, &msg)
@@ -24,11 +27,27 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			return
 		}
 
-		if msg.Tenant == nil {
+		tenant := ""
+
+		if msg.Tenant != nil {
+			tenant = *msg.Tenant
+		} else {
+			if msg.Pack != nil {
+				for _, r := range *msg.Pack {
+					if strings.EqualFold("tenant", r.Name) {
+						tenant = r.StringValue
+						logger.Debug().Msgf("got tenant %s from pack for %s", tenant, d.RoutingKey)
+						break
+					}
+				}
+			}
+		}
+
+		if tenant == "" {
 			logger.Info().Msgf("message type %s contains no tenant information", d.RoutingKey)
 			return
 		}
 
-		m.Publish(mediator.NewMessage(d.MessageId, d.RoutingKey, *msg.Tenant, d.Body))
+		m.Publish(mediator.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body))
 	}
 }

@@ -148,6 +148,8 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 				id = *messageBody.DeviceID
 			} else if messageBody.FunctionID != nil {
 				id = *messageBody.FunctionID
+			} else if messageBody.SensorID != nil {
+				id = *messageBody.SensorID
 			}
 
 			if id == "" {
@@ -165,14 +167,16 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 				break
 			}
 
-			err = eventSenderFunc(eventInfo{
+			ei := eventInfo{
 				id:        id,
 				timestamp: timestamp,
 				source:    s.source,
 				eventType: s.eventType,
 				endpoint:  s.endpoint,
 				data:      msg.Data(),
-			})
+			}
+
+			err = eventSenderFunc(ei)
 
 			if err != nil {
 				s.logger.Error().Err(err).Msg("failed to send event")
@@ -226,5 +230,6 @@ type eventInfo struct {
 type messageBody struct {
 	FunctionID *string    `json:"id,omitempty"`
 	DeviceID   *string    `json:"deviceID,omitempty"`
+	SensorID   *string    `json:"sensorID,omitempty"`
 	Timestamp  *time.Time `json:"timestamp,omitempty"`
 }
