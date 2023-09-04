@@ -35,16 +35,14 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			if msg.Pack != nil {
 				for _, r := range *msg.Pack {
 					if strings.EqualFold("tenant", r.Name) {
-						tenant = r.StringValue
-						logger.Debug().Msgf("got tenant %s from pack for %s", tenant, d.RoutingKey)
+						tenant = r.StringValue						
 						break
 					}
 				}
 			}
 		}
 
-		if tenant == "" {
-			logger.Info().Msgf("message type %s contains no tenant information", d.RoutingKey)
+		if tenant == "" {			
 			return
 		}
 
