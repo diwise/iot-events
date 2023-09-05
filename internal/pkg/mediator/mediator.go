@@ -181,9 +181,7 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 			subscriberCountQueried <- len(m.subscribers)
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
-				if !s.AcceptIfValid(msg) {
-					m.logger.Debug().Msgf("message not accepted or valid for %s", s.ID())
-				}
+				s.AcceptIfValid(msg)
 			}
 		}
 	}
