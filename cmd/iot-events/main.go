@@ -15,7 +15,6 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -33,8 +32,6 @@ func main() {
 	flag.StringVar(&opaFilePath, "policies", "/opt/diwise/config/authz.rego", "An authorization policy file")
 	flag.Parse()
 
-	ctx = logging.NewContextWithLogger(ctx, logger)
-
 	mediator := mediator.New(logger)
 	go mediator.Start(ctx)
 
@@ -45,7 +42,7 @@ func main() {
 		}
 		defer policies.Close()
 
-		return api.New(serviceName, mediator, policies, logger)
+		return api.New(ctx, serviceName, mediator, policies)
 	}()
 
 	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(logger, "SERVICE_PORT", "8080"))

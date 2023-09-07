@@ -18,7 +18,7 @@ var _ Mediator = &MediatorMock{}
 //
 //		// make and configure a mocked Mediator
 //		mockedMediator := &MediatorMock{
-//			PublishFunc: func(message Message)  {
+//			PublishFunc: func(ctx context.Context, message Message)  {
 //				panic("mock out the Publish method")
 //			},
 //			RegisterFunc: func(subscriber Subscriber)  {
@@ -41,7 +41,7 @@ var _ Mediator = &MediatorMock{}
 //	}
 type MediatorMock struct {
 	// PublishFunc mocks the Publish method.
-	PublishFunc func(message Message)
+	PublishFunc func(ctx context.Context, message Message)
 
 	// RegisterFunc mocks the Register method.
 	RegisterFunc func(subscriber Subscriber)
@@ -59,6 +59,8 @@ type MediatorMock struct {
 	calls struct {
 		// Publish holds details about calls to the Publish method.
 		Publish []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 			// Message is the message argument value.
 			Message Message
 		}
@@ -89,19 +91,21 @@ type MediatorMock struct {
 }
 
 // Publish calls PublishFunc.
-func (mock *MediatorMock) Publish(message Message) {
+func (mock *MediatorMock) Publish(ctx context.Context, message Message) {
 	if mock.PublishFunc == nil {
 		panic("MediatorMock.PublishFunc: method is nil but Mediator.Publish was just called")
 	}
 	callInfo := struct {
+		Ctx     context.Context
 		Message Message
 	}{
+		Ctx:     ctx,
 		Message: message,
 	}
 	mock.lockPublish.Lock()
 	mock.calls.Publish = append(mock.calls.Publish, callInfo)
 	mock.lockPublish.Unlock()
-	mock.PublishFunc(message)
+	mock.PublishFunc(ctx, message)
 }
 
 // PublishCalls gets all the calls that were made to Publish.
@@ -109,9 +113,11 @@ func (mock *MediatorMock) Publish(message Message) {
 //
 //	len(mockedMediator.PublishCalls())
 func (mock *MediatorMock) PublishCalls() []struct {
+	Ctx     context.Context
 	Message Message
 } {
 	var calls []struct {
+		Ctx     context.Context
 		Message Message
 	}
 	mock.lockPublish.RLock()

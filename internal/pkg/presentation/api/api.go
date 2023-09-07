@@ -12,14 +12,14 @@ import (
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
 	"github.com/rs/cors"
-	"github.com/rs/zerolog"
 )
 
-func New(serviceName string, mediator mediator.Mediator, policies io.Reader, logger zerolog.Logger) chi.Router {
+func New(ctx context.Context, serviceName string, mediator mediator.Mediator, policies io.Reader) chi.Router {
 	r := chi.NewRouter()
 
 	r.Use(middleware.Logger)
@@ -39,22 +39,23 @@ func New(serviceName string, mediator mediator.Mediator, policies io.Reader, log
 
 	r.Route("/api/v0", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
-			authenticator, err := auth.NewAuthenticator(context.Background(), logger, policies)
+			authenticator, err := auth.NewAuthenticator(ctx, policies)
 			if err != nil {
+				logger := logging.GetFromContext(ctx)
 				logger.Fatal().Err(err).Msg("failed to create api authenticator")
 			}
 
 			r.Use(authenticator)
-			r.Get("/events", EventSource(mediator, logger))
+			r.Get("/events", EventSource(ctx, mediator))
 		})
 	})
 
-	KeepAlive(mediator)
+	KeepAlive(ctx, mediator)
 
 	return r
 }
 
-func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
+func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 
@@ -88,6 +89,8 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 
 		msgCache := make(map[string]time.Time)
 
+		logger := logging.GetFromContext(ctx)
+
 		for {
 			msg := <-subscriber.Mailbox()
 
@@ -120,13 +123,13 @@ func EventSource(m mediator.Mediator, logger zerolog.Logger) http.HandlerFunc {
 	}
 }
 
-func KeepAlive(m mediator.Mediator) {
+func KeepAlive(ctx context.Context, m mediator.Mediator) {
 	msg := mediator.NewMessage("", "keep-alive", "default", nil)
 
 	go func() {
 		for {
 			time.Sleep(10 * time.Second)
-			m.Publish(msg)
+			m.Publish(ctx, msg)
 		}
 	}()
 }
