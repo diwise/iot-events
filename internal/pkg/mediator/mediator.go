@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 )
@@ -113,7 +114,7 @@ func (s *subscriberImpl) AcceptIfValid(m Message) bool {
 type Mediator interface {
 	Register(subscriber Subscriber)
 	Unregister(subscriber Subscriber)
-	Publish(message Message)
+	Publish(ctx context.Context, message Message)
 	Start(ctx context.Context)
 	SubscriberCount() int
 }
@@ -154,10 +155,12 @@ func (m *mediatorImpl) SubscriberCount() int {
 	return <-result
 }
 
-func (m *mediatorImpl) Publish(msg Message) {
-	m.logger.Debug().Msgf("publish message %s:%s to tenant %s", msg.Type(), msg.ID(), msg.Tenant())
+func (m *mediatorImpl) Publish(ctx context.Context, msg Message) {
+	logger := logging.GetFromContext(ctx)
+	logger.Debug().Msgf("publish message %s:%s to tenant %s", msg.Type(), msg.ID(), msg.Tenant())
 	m.inbox <- msg
 }
+
 func (m *mediatorImpl) Start(ctx context.Context) {
 	tenants := func(s []string) string {
 		if len(s) == 0 {

@@ -35,17 +35,17 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			if msg.Pack != nil {
 				for _, r := range *msg.Pack {
 					if strings.EqualFold("tenant", r.Name) {
-						tenant = r.StringValue						
+						tenant = r.StringValue
 						break
 					}
 				}
 			}
 		}
 
-		if tenant == "" {			
+		if tenant == "" {
 			return
 		}
 
-		m.Publish(mediator.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body))
+		m.Publish(ctx, mediator.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body))
 	}
 }

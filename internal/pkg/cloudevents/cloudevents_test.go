@@ -47,7 +47,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 
 	ds := newDeviceStatusUpdated(now)
 
-	m.Publish(mediator.NewMessage("messageID", "device.statusUpdated", "default", ds))
+	m.Publish(ctx, mediator.NewMessage("messageID", "device.statusUpdated", "default", ds))
 
 	result := <-resultChan
 

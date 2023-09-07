@@ -78,7 +78,7 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
-	m.Publish(NewMessage("id", "message.type", "default", []byte("{}")))
+	m.Publish(ctx, NewMessage("id", "message.type", "default", []byte("{}")))
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 

@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
 	"github.com/open-policy-agent/opa/rego"
-	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
 )
 
@@ -22,7 +22,7 @@ var allowedTenantsCtxKey = &tenantsContextKey{"allowed-tenants"}
 
 var tracer = otel.Tracer("iot-events/authz")
 
-func NewAuthenticator(ctx context.Context, logger zerolog.Logger, policies io.Reader) (func(http.Handler) http.Handler, error) {
+func NewAuthenticator(ctx context.Context, policies io.Reader) (func(http.Handler) http.Handler, error) {
 
 	module, err := io.ReadAll(policies)
 	if err != nil {
@@ -37,6 +37,8 @@ func NewAuthenticator(ctx context.Context, logger zerolog.Logger, policies io.Re
 	if err != nil {
 		return nil, err
 	}
+
+	logger := logging.GetFromContext(ctx)
 
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
