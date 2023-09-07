@@ -14,16 +14,12 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/go-chi/chi/v5"
-	"github.com/go-chi/chi/v5/middleware"
 	"github.com/riandyrn/otelchi"
 	"github.com/rs/cors"
 )
 
 func New(ctx context.Context, serviceName string, mediator mediator.Mediator, policies io.Reader) chi.Router {
 	r := chi.NewRouter()
-
-	r.Use(middleware.Logger)
-	r.Use(middleware.Recoverer)
 
 	r.Use(cors.New(cors.Options{
 		AllowedOrigins:   []string{"*"},
