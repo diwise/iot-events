@@ -2,12 +2,12 @@ package mediator
 
 import (
 	"context"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/google/uuid"
-	"github.com/rs/zerolog"
 )
 
 type Message interface {
@@ -127,10 +127,10 @@ type mediatorImpl struct {
 	subscribers map[string]Subscriber
 	subscount   chan chan int
 
-	logger zerolog.Logger
+	logger *slog.Logger
 }
 
-func New(logger zerolog.Logger) Mediator {
+func New(logger *slog.Logger) Mediator {
 	return &mediatorImpl{
 		inbox:      make(chan Message, 1),
 		register:   make(chan Subscriber),
@@ -157,7 +157,12 @@ func (m *mediatorImpl) SubscriberCount() int {
 
 func (m *mediatorImpl) Publish(ctx context.Context, msg Message) {
 	logger := logging.GetFromContext(ctx)
-	logger.Debug().Msgf("publish message %s:%s to tenant %s", msg.Type(), msg.ID(), msg.Tenant())
+	logger.Debug(
+		"publishing message to tenant",
+		"message_type", msg.Type(),
+		"message_id", msg.ID(),
+		"tenant", msg.Tenant(),
+	)
 	m.inbox <- msg
 }
 
@@ -172,14 +177,14 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			m.logger.Debug().Msg("Done!")
+			m.logger.Debug("Done!")
 			return
 		case s := <-m.register:
 			m.subscribers[s.ID()] = s
-			m.logger.Debug().Msgf("register new subscriber %s, tenants: %s. len: %d", s.ID(), tenants(s.Tenants()), len(m.subscribers))
+			m.logger.Debug("register new subscriber", "subscriber_id", s.ID(), "tenants", tenants(s.Tenants()), "total", len(m.subscribers))
 		case s := <-m.unregister:
 			delete(m.subscribers, s.ID())
-			m.logger.Debug().Msgf("unregister subscriber %s. len: %d", s.ID(), len(m.subscribers))
+			m.logger.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", len(m.subscribers))
 		case subscriberCountQueried := <-m.subscount:
 			subscriberCountQueried <- len(m.subscribers)
 		case msg := <-m.inbox:

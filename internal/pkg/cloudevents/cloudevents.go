@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	"github.com/rs/zerolog"
 	"golang.org/x/sys/unix"
 
 	cloud "github.com/cloudevents/sdk-go/v2"
@@ -25,11 +25,14 @@ var ErrCloudEventClientError = fmt.Errorf("could not create cloud event client")
 var ErrMessageBadFormat = fmt.Errorf("could not set data")
 var ErrConnRefused = fmt.Errorf("connection refused")
 
-func New(config *Config, m mediator.Mediator, logger zerolog.Logger) CloudEvents {
+func New(config *Config, m mediator.Mediator, logger *slog.Logger) CloudEvents {
 	for i, s := range config.Subscribers {
 
 		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
-		logger = logger.With().Str("subscriber_id", sId).Str("endpoint", s.Endpoint).Logger()
+		logger = logger.With(
+			slog.String("subscriber_id", sId),
+			slog.String("endpoint", s.Endpoint),
+		)
 
 		var idPatterns []string
 		for _, e := range s.Entities {
@@ -64,7 +67,7 @@ type ceSubscriberImpl struct {
 	id          string
 	idPatterns  []string
 	inbox       chan mediator.Message
-	logger      zerolog.Logger
+	logger      *slog.Logger
 	messageType string
 	tenants     []string
 	source      string
@@ -126,20 +129,20 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 	for {
 		select {
 		case b := <-s.done:
-			s.logger.Debug().Msgf("Done! %t", b)
+			s.logger.Debug(fmt.Sprintf("Done! %t", b))
 			return
 		case msg := <-s.inbox:
-			s.logger.Debug().Msgf("handle message %s:%s", msg.Type(), msg.ID())
+			s.logger.Debug("handle message", "message_type", msg.Type(), "message_id", msg.ID())
 
 			if !contains(s.tenants, msg.Tenant()) {
-				s.logger.Debug().Msg("tenant not supported by this subscriber")
+				s.logger.Debug("tenant not supported by this subscriber")
 				break
 			}
 
 			messageBody := messageBody{}
 			err := json.Unmarshal(msg.Data(), &messageBody)
 			if err != nil {
-				s.logger.Error().Err(err).Msg("could not unmarshal message body")
+				s.logger.Error("could not unmarshal message body", "err", err.Error())
 				break
 			}
 
@@ -153,7 +156,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			}
 
 			if id == "" {
-				s.logger.Error().Msg("message body missing id property")
+				s.logger.Error("message body missing id property")
 				break
 			}
 
@@ -163,7 +166,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			}
 
 			if !matchIfNotEmpty(s.idPatterns, id) {
-				s.logger.Debug().Msgf("no matching id pattern for %s", id)
+				s.logger.Debug("no matching id pattern", "message_id", id)
 				break
 			}
 
@@ -179,7 +182,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			err = eventSenderFunc(ei)
 
 			if err != nil {
-				s.logger.Error().Err(err).Msg("failed to send event")
+				s.logger.Error("failed to send event", "err", err.Error())
 				if errors.Is(err, ErrCloudEventClientError) {
 					s.done <- true
 				}

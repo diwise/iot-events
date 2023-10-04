@@ -3,19 +3,19 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"strings"
 
 	"github.com/farshidtz/senml/v2"
 	amqp "github.com/rabbitmq/amqp091-go"
-	"github.com/rs/zerolog"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ zerolog.Logger) messaging.TopicMessageHandler {
-	return func(ctx context.Context, d amqp.Delivery, logger zerolog.Logger) {
+func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ *slog.Logger) messaging.TopicMessageHandler {
+	return func(ctx context.Context, d amqp.Delivery, logger *slog.Logger) {
 
 		ctx = logging.NewContextWithLogger(ctx, logger)
 
@@ -26,7 +26,7 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 
 		err := json.Unmarshal(d.Body, &msg)
 		if err != nil {
-			logger.Error().Err(err).Msgf("failed to unmarshal message")
+			logger.Error("failed to unmarshal message", "err", err.Error())
 			return
 		}
 
