@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +14,6 @@ import (
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/matryer/is"
-	"github.com/rs/zerolog"
 )
 
 func TestThatCloudEventIsSent(t *testing.T) {
@@ -36,7 +36,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	cfg, err := LoadConfiguration(r)
 	is.NoErr(err)
 
-	logger := zerolog.Logger{}
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m := mediator.New(logger)
 	go m.Start(ctx)
 
@@ -204,7 +204,8 @@ func TestNewWithEmptyConfig(t *testing.T) {
 	m := mediator.MediatorMock{
 		RegisterFunc: func(subscriber mediator.Subscriber) {},
 	}
-	c := New(LoadConfigurationFromFile(""), &m, zerolog.Logger{})
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := New(LoadConfigurationFromFile(""), &m, logger)
 	is.True(c != nil)
 
 	is.Equal(0, len(m.RegisterCalls()))
@@ -222,7 +223,8 @@ func TestNewWithEmptyConfigFile(t *testing.T) {
 	cfg, err := LoadConfiguration(configReader)
 	is.NoErr(err)
 
-	c := New(cfg, &m, zerolog.Logger{})
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	c := New(cfg, &m, logger)
 	is.True(c != nil)
 
 	is.Equal(0, len(m.RegisterCalls()))
@@ -236,7 +238,7 @@ func testSetup(t *testing.T) (*is.I, *ceSubscriberImpl) {
 		done:      make(chan bool),
 		inbox:     make(chan mediator.Message),
 		endpoint:  "http://server.url",
-		logger:    zerolog.Logger{},
+		logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
 		source:    "source",
 		eventType: "type",
 

@@ -15,6 +15,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -35,29 +36,38 @@ func main() {
 	mediator := mediator.New(logger)
 	go mediator.Start(ctx)
 
-	api := func() chi.Router {
+	api, err := func() (chi.Router, error) {
 		policies, err := os.Open(opaFilePath)
 		if err != nil {
-			logger.Fatal().Err(err).Msg("unable to open opa policy file")
+			return nil, fmt.Errorf("unable to open opa policy file: %w", err)
 		}
 		defer policies.Close()
 
 		return api.New(ctx, serviceName, mediator, policies)
 	}()
-
-	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(logger, "SERVICE_PORT", "8080"))
-
-	config := messaging.LoadConfiguration(serviceName, logger)
-	messenger, err := messaging.Initialize(config)
 	if err != nil {
-		logger.Fatal().Err(err).Msg("failed to init messenger")
+		panic(err)
 	}
 
-	topic := env.GetVariableOrDefault(logger, "RABBITMQ_TOPIC", "#")
+	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(ctx, "SERVICE_PORT", "8080"))
+
+	config := messaging.LoadConfiguration(ctx, serviceName, logger)
+	messenger, err := messaging.Initialize(ctx, config)
+	if err != nil {
+		fatal(ctx, "failed to init messenger", err)
+	}
+
+	topic := env.GetVariableOrDefault(ctx, "RABBITMQ_TOPIC", "#")
 
 	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator, logger))
 
 	cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator, logger)
 
 	http.ListenAndServe(apiPort, api)
+}
+
+func fatal(ctx context.Context, msg string, err error) {
+	logger := logging.GetFromContext(ctx)
+	logger.Error(msg, "err", err.Error())
+	os.Exit(1)
 }

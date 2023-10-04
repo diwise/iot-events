@@ -18,7 +18,7 @@ import (
 	"github.com/rs/cors"
 )
 
-func New(ctx context.Context, serviceName string, mediator mediator.Mediator, policies io.Reader) chi.Router {
+func New(ctx context.Context, serviceName string, mediator mediator.Mediator, policies io.Reader) (chi.Router, error) {
 	r := chi.NewRouter()
 
 	r.Use(cors.New(cors.Options{
@@ -33,14 +33,13 @@ func New(ctx context.Context, serviceName string, mediator mediator.Mediator, po
 		w.WriteHeader(http.StatusOK)
 	})
 
+	authenticator, err := auth.NewAuthenticator(ctx, policies)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create api authenticator: %w", err)
+	}
+
 	r.Route("/api/v0", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
-			authenticator, err := auth.NewAuthenticator(ctx, policies)
-			if err != nil {
-				logger := logging.GetFromContext(ctx)
-				logger.Fatal().Err(err).Msg("failed to create api authenticator")
-			}
-
 			r.Use(authenticator)
 			r.Get("/events", EventSource(ctx, mediator))
 		})
@@ -48,7 +47,7 @@ func New(ctx context.Context, serviceName string, mediator mediator.Mediator, po
 
 	KeepAlive(ctx, mediator)
 
-	return r
+	return r, nil
 }
 
 func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
@@ -106,11 +105,16 @@ func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
 
 			_, err := w.Write(formatMessage(msg))
 			if err != nil {
-				logger.Error().Err(err).Msg("could not write to response")
+				logger.Error("could not write to response", "err", err.Error())
 			}
 
 			flusher.Flush()
-			logger.Debug().Msgf("message %s:%s sent to %s", msg.Type(), msg.ID(), subscriber.ID())
+			logger.Debug(
+				"message sent to subscriber",
+				"message_type", msg.Type(),
+				"message_id", msg.ID(),
+				"subscriber_id", subscriber.ID(),
+			)
 
 			if cacheId != "" {
 				msgCache[cacheId] = time.Now().UTC().Add(30 * time.Second)

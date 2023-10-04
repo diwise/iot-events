@@ -2,12 +2,13 @@ package mediator
 
 import (
 	"context"
+	"io"
+	"log/slog"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/matryer/is"
-	"github.com/rs/zerolog"
 )
 
 const TimeUntilMessagesHaveBeenProcessed time.Duration = 100 * time.Millisecond
@@ -90,7 +91,7 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 func testSetup(t *testing.T) (*is.I, context.Context, Mediator) {
 	is := is.New(t)
-	m := New(zerolog.Logger{})
+	m := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
 
 	go m.Start(ctx)
