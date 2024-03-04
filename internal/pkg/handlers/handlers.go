@@ -7,26 +7,22 @@ import (
 	"strings"
 
 	"github.com/farshidtz/senml/v2"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/google/uuid"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/messaging-golang/pkg/messaging"
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
 func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ *slog.Logger) messaging.TopicMessageHandler {
-	return func(ctx context.Context, d amqp.Delivery, logger *slog.Logger) {
-
-		ctx = logging.NewContextWithLogger(ctx, logger)
-
+	return func(ctx context.Context, itm messaging.IncomingTopicMessage, l *slog.Logger) {
 		msg := struct {
 			Tenant *string     `json:"tenant,omitempty"`
 			Pack   *senml.Pack `json:"pack,omitempty"`
 		}{}
 
-		err := json.Unmarshal(d.Body, &msg)
+		err := json.Unmarshal(itm.Body(), &msg)
 		if err != nil {
-			logger.Error("failed to unmarshal message", "err", err.Error())
+			l.Error("failed to unmarshal message", "err", err.Error())
 			return
 		}
 
@@ -46,9 +42,12 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 		}
 
 		if tenant == "" {
+			l.Debug("message contains no tenant")
 			return
 		}
 
-		m.Publish(ctx, mediator.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body))
+		messageId := uuid.New().String()
+
+		m.Publish(ctx, mediator.NewMessage(messageId, itm.TopicName(), tenant, itm.Body()))
 	}
 }
