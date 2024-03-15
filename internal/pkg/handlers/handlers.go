@@ -4,18 +4,17 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
-	"strings"
 
-	"github.com/farshidtz/senml/v2"
-	amqp "github.com/rabbitmq/amqp091-go"
+	"github.com/google/uuid"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/messaging-golang/pkg/messaging"
+	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
 func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ *slog.Logger) messaging.TopicMessageHandler {
-	return func(ctx context.Context, d amqp.Delivery, logger *slog.Logger) {
+	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) {
 
 		ctx = logging.NewContextWithLogger(ctx, logger)
 
@@ -24,7 +23,7 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			Pack   *senml.Pack `json:"pack,omitempty"`
 		}{}
 
-		err := json.Unmarshal(d.Body, &msg)
+		err := json.Unmarshal(d.Body(), &msg)
 		if err != nil {
 			logger.Error("failed to unmarshal message", "err", err.Error())
 			return
@@ -34,14 +33,12 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 
 		if msg.Tenant != nil {
 			tenant = *msg.Tenant
-		} else {
-			if msg.Pack != nil {
-				for _, r := range *msg.Pack {
-					if strings.EqualFold("tenant", r.Name) {
-						tenant = r.StringValue
-						break
-					}
-				}
+		}
+
+		if tenant == "" && msg.Pack != nil {
+			t, ok := msg.Pack.GetStringValue(senml.FindByName("tenant"))
+			if ok {
+				tenant = t
 			}
 		}
 
@@ -49,6 +46,6 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			return
 		}
 
-		m.Publish(ctx, mediator.NewMessage(d.MessageId, d.RoutingKey, tenant, d.Body))
+		m.Publish(ctx, mediator.NewMessage(uuid.New().String(), d.TopicName(), tenant, d.Body()))
 	}
 }
