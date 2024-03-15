@@ -1,6 +1,8 @@
 module github.com/diwise/iot-events
 
-go 1.22
+go 1.22.0
+
+toolchain go1.22.1
 
 require (
 	github.com/diwise/service-chassis v0.0.0-20240208114035-ce4e0da5ec05
@@ -17,7 +19,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/felixge/httpsnoop v1.0.4 // indirect
-	github.com/fxamacker/cbor/v2 v2.6.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
 	github.com/go-logr/logr v1.4.1 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
@@ -35,6 +36,7 @@ require (
 	github.com/prometheus/client_model v0.6.0 // indirect
 	github.com/prometheus/common v0.49.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
+	github.com/rabbitmq/amqp091-go v1.9.0 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475 // indirect
 	github.com/sirupsen/logrus v1.9.3 // indirect
 	github.com/tchap/go-patricia/v2 v2.3.1 // indirect
@@ -54,10 +56,10 @@ require (
 	go.opentelemetry.io/proto/otlp v1.1.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/zap v1.27.0 // indirect
-	golang.org/x/net v0.21.0 // indirect
+	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240228224816-df926f6c8641 // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240228224816-df926f6c8641 // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240304212257-790db918fca8 // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240304212257-790db918fca8 // indirect
 	google.golang.org/grpc v1.62.0 // indirect
 	google.golang.org/protobuf v1.32.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
@@ -65,13 +67,12 @@ require (
 
 require (
 	github.com/cloudevents/sdk-go/v2 v2.15.1
-	github.com/diwise/messaging-golang v0.0.0-20240126121333-1e56bea211f9
-	github.com/farshidtz/senml/v2 v2.0.0
+	github.com/diwise/messaging-golang v0.0.0-20240305132547-e9e7e248397e
+	github.com/diwise/senml v0.0.0-20240312095754-96c1d2ee070d
 	github.com/matryer/is v1.4.1
 	github.com/open-policy-agent/opa v0.62.0
-	github.com/rabbitmq/amqp091-go v1.9.0
 	github.com/riandyrn/otelchi v0.5.1
 	github.com/rs/cors v1.10.1
-	golang.org/x/sys v0.17.0
+	golang.org/x/sys v0.18.0
 	gopkg.in/yaml.v2 v2.4.0
 )
