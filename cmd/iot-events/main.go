@@ -56,12 +56,14 @@ func main() {
 	if err != nil {
 		fatal(ctx, "failed to init messenger", err)
 	}
+	messenger.Start()
 
 	topic := env.GetVariableOrDefault(ctx, "RABBITMQ_TOPIC", "#")
 
 	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator, logger))
 
-	cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator, logger)
+	ce := cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator, logger)
+	ce.Start()
 
 	http.ListenAndServe(apiPort, api)
 }
