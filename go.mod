@@ -43,7 +43,6 @@ require (
 	github.com/xeipuuv/gojsonpointer v0.0.0-20190905194746-02993c407bfb // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
-	go.opentelemetry.io/contrib v1.24.0 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.49.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.24.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.24.0 // indirect
@@ -58,8 +57,8 @@ require (
 	go.uber.org/zap v1.27.0 // indirect
 	golang.org/x/net v0.22.0 // indirect
 	golang.org/x/text v0.14.0 // indirect
-	google.golang.org/genproto/googleapis/api v0.0.0-20240325203815-454cdb8f5daa // indirect
-	google.golang.org/genproto/googleapis/rpc v0.0.0-20240325203815-454cdb8f5daa // indirect
+	google.golang.org/genproto/googleapis/api v0.0.0-20240401170217-c3f982113cda // indirect
+	google.golang.org/genproto/googleapis/rpc v0.0.0-20240401170217-c3f982113cda // indirect
 	google.golang.org/grpc v1.62.1 // indirect
 	google.golang.org/protobuf v1.33.0 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
@@ -70,8 +69,8 @@ require (
 	github.com/diwise/messaging-golang v0.0.0-20240328100115-197aa8e3a58d
 	github.com/diwise/senml v0.0.0-20240320103927-03207b97394b
 	github.com/matryer/is v1.4.1
-	github.com/open-policy-agent/opa v0.62.1
-	github.com/riandyrn/otelchi v0.5.2
+	github.com/open-policy-agent/opa v0.63.0
+	github.com/riandyrn/otelchi v0.6.0
 	github.com/rs/cors v1.10.1
 	golang.org/x/sys v0.18.0
 	gopkg.in/yaml.v2 v2.4.0
