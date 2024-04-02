@@ -40,8 +40,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	m := mediator.New(logger)
 	go m.Start(ctx)
 
-	c := New(cfg, m, logger)
-	is.True(c != nil)
+	New(cfg, m, logger).Start()
 
 	now := time.Now()
 
@@ -205,8 +204,7 @@ func TestNewWithEmptyConfig(t *testing.T) {
 		RegisterFunc: func(subscriber mediator.Subscriber) {},
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	c := New(LoadConfigurationFromFile(""), &m, logger)
-	is.True(c != nil)
+	New(LoadConfigurationFromFile(""), &m, logger).Start()
 
 	is.Equal(0, len(m.RegisterCalls()))
 }
@@ -224,8 +222,7 @@ func TestNewWithEmptyConfigFile(t *testing.T) {
 	is.NoErr(err)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	c := New(cfg, &m, logger)
-	is.True(c != nil)
+	New(cfg, &m, logger).Start()
 
 	is.Equal(0, len(m.RegisterCalls()))
 }

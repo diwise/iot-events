@@ -16,20 +16,31 @@ import (
 	cloud "github.com/cloudevents/sdk-go/v2"
 )
 
-type CloudEvents interface{}
-type cloudeventsImpl struct{}
-
 type CloudEventSenderFunc = func(e eventInfo) error
 
 var ErrCloudEventClientError = fmt.Errorf("could not create cloud event client")
 var ErrMessageBadFormat = fmt.Errorf("could not set data")
 var ErrConnRefused = fmt.Errorf("connection refused")
 
-func New(config *Config, m mediator.Mediator, logger *slog.Logger) CloudEvents {
-	for i, s := range config.Subscribers {
+type CloudEvents struct {
+	config *Config
+	m      mediator.Mediator
+	log    *slog.Logger
+}
+
+func New(cfg *Config, m mediator.Mediator, logger *slog.Logger) CloudEvents {
+	return CloudEvents{
+		config: cfg,
+		m:      m,
+		log:    logger,
+	}
+}
+
+func (c CloudEvents) Start() {
+	for i, s := range c.config.Subscribers {
 
 		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
-		logger = logger.With(
+		logger := c.log.With(
 			slog.String("subscriber_id", sId),
 			slog.String("endpoint", s.Endpoint),
 		)
@@ -52,13 +63,10 @@ func New(config *Config, m mediator.Mediator, logger *slog.Logger) CloudEvents {
 			eventType:   s.EventType,
 		}
 
-		m.Register(subscriber)
+		c.m.Register(subscriber)
 
-		go subscriber.run(m, cloudEventSenderFunc)
-
+		go subscriber.run(c.m, cloudEventSenderFunc)
 	}
-
-	return &cloudeventsImpl{}
 }
 
 type ceSubscriberImpl struct {
