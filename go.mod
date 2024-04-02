@@ -67,7 +67,7 @@ require (
 require (
 	github.com/cloudevents/sdk-go/v2 v2.15.2
 	github.com/diwise/messaging-golang v0.0.0-20240328100115-197aa8e3a58d
-	github.com/diwise/senml v0.0.0-20240320103927-03207b97394b
+	github.com/diwise/senml v0.0.0-20240402140901-e4008e065e05
 	github.com/matryer/is v1.4.1
 	github.com/open-policy-agent/opa v0.63.0
 	github.com/riandyrn/otelchi v0.6.0
