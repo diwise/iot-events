@@ -17,7 +17,7 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant)`
 
 	_, err := s.conn.Exec(ctx, sql, pgx.NamedArgs{
-		"time":      m.Timestamp,
+		"time":      m.Timestamp.UTC(),
 		"id":        m.ID,
 		"device_id": m.DeviceID,
 		"n":         m.Name,

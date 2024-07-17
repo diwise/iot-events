@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"slices"
+	"strings"
 	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
@@ -65,7 +67,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 		name := n
 
 		value := messagecollector.Value{
-			Timestamp:   ts,
+			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
 			StringValue: vs,
 			Unit:        unit,
@@ -136,7 +138,7 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 			ID:           id,
 			Urn:          urn,
 			Count:        n,
-			LastObserved: ts,
+			LastObserved: ts.UTC(),
 			Link:         u,
 		}
 		dr.Measurements = append(dr.Measurements, t)
@@ -170,23 +172,71 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		return errorResult("query contains no ID")
 	}
 
+	timeRel, ok := q.GetString("timeRel")
+	if ok {
+		if !slices.Contains([]string{"after", "before", "between"}, timeRel) {
+			return errorResult(fmt.Sprintf("invalid timeRel, should be [after, before, between] is %s", timeRel))
+		}
+	}
+
+	var timeAt, endTimeAt time.Time
+	var timeRelSql string = ""
+
+	if timeRel != "" {
+		timeAt, ok = q.GetTime("timeAt")
+		if !ok {
+			return errorResult("parameter timeAt is invalid")
+		}
+		if strings.EqualFold(timeRel, "between") {
+			endTimeAt, ok = q.GetTime("endTimeAt")
+			if !ok {
+				return errorResult("parameter endTimeAt is invalid")
+			}
+		} else {
+			endTimeAt = time.Now().UTC()
+		}
+
+		switch timeRel {
+		case "after":
+			timeRelSql = `
+		  		AND "time" >= @timeAt			
+			`
+		case "before":
+			timeRelSql = `
+		  		AND "time" <= @timeAt			
+			`
+		case "between":
+			timeRelSql = `
+		  		AND "time" BETWEEN @timeAt AND @endTimeAt			
+			`
+		}
+	}
+
 	sql := `	
 		SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count 
-		FROM events_measurements
+		FROM events_measurements		
+	`
+	where := `
 		WHERE "id" = @id 
 		  AND tenant=any(@tenants)
+	`
+	order := `
 		ORDER BY "time" ASC
 		OFFSET @offset LIMIT @limit;
 	`
+
+	sql = sql + where + timeRelSql + order
 
 	offset := q.GetUint64OrDefault("offset", 0)
 	limit := q.GetUint64OrDefault("limit", 10)
 
 	args := pgx.NamedArgs{
-		"id":      id,
-		"offset":  offset,
-		"limit":   limit,
-		"tenants": tenants,
+		"id":        id,
+		"offset":    offset,
+		"limit":     limit,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
 	}
 
 	var ts time.Time
@@ -208,7 +258,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &total_count}, func() error {
 		value := messagecollector.Value{
-			Timestamp:   ts,
+			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
 			StringValue: vs,
 			Unit:        unit,

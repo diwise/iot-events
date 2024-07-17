@@ -2,6 +2,7 @@ package messagecollector
 
 import (
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,10 +18,18 @@ type QueryResult struct {
 type QueryParams map[string][]string
 
 func ParseQuery(q map[string][]string) QueryParams {
-	return q
+	m := map[string][]string{}
+
+	for k,v := range q {
+		key := strings.ToLower(k)		
+		m[key]=v
+	}
+
+	return m 
 }
 
 func (q QueryParams) GetString(key string) (string, bool) {
+	key = strings.ToLower(key)
 	s, ok := q[key]
 	if !ok {
 		return "", false
@@ -29,6 +38,7 @@ func (q QueryParams) GetString(key string) (string, bool) {
 }
 
 func (q QueryParams) GetUint64(key string) (uint64, bool) {
+	key = strings.ToLower(key)
 	s, ok := q[key]
 	if !ok {
 		return 0, false
@@ -46,6 +56,23 @@ func (q QueryParams) GetUint64OrDefault(key string, i uint64) uint64 {
 		return i
 	}
 	return v
+}
+
+func (q QueryParams) GetTime(key string) (time.Time, bool) {
+	ts, ok := q.GetString(key)
+	if !ok {
+		return time.Time{}, false
+	}
+
+	if !strings.HasSuffix(ts, "Z") {
+		ts += "Z"
+	}
+
+	t, err := time.Parse(time.RFC3339, ts)
+	if err != nil {
+		return time.Time{}, false
+	}
+	return t.UTC(), true
 }
 
 func NewMeasurement(ts time.Time, id, deviceID, name, urn, tenant string) Measurement {
