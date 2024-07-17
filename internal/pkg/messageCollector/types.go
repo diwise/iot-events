@@ -20,12 +20,12 @@ type QueryParams map[string][]string
 func ParseQuery(q map[string][]string) QueryParams {
 	m := map[string][]string{}
 
-	for k,v := range q {
-		key := strings.ToLower(k)		
-		m[key]=v
+	for k, v := range q {
+		key := strings.ToLower(k)
+		m[key] = v
 	}
 
-	return m 
+	return m
 }
 
 func (q QueryParams) GetString(key string) (string, bool) {
@@ -106,8 +106,8 @@ type MeasurementResult struct {
 	DeviceID string   `json:"deviceID"`
 	Name     string   `json:"name"`
 	Urn      string   `json:"urn"`
-	Lat      *float64 `json:"lat"`
-	Lon      *float64 `json:"lon"`
+	Lat      *float64 `json:"lat,omitempty"`
+	Lon      *float64 `json:"lon,omitempty"`
 	Values   []Value  `json:"values"`
 	Tenant   string   `json:"tenant"`
 }
