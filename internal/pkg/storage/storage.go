@@ -75,12 +75,12 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			device_id  	TEXT NOT NULL,
 			urn		  	TEXT NOT NULL,
 			location 	POINT NULL,
-			n 			TEXT NOT NULL DEFAULT '',									
+			n 			TEXT NOT NULL,									
 			v 			NUMERIC NULL,
 			vs 			TEXT NOT NULL DEFAULT '',			
 			vb 			BOOLEAN NULL,			
 			unit 		TEXT NOT NULL DEFAULT '',
-			tenant 		TEXT NOT NULL DEFAULT '',
+			tenant 		TEXT NOT NULL,
 			UNIQUE ("time", "id"));`
 
 	countHyperTable := `SELECT COUNT(*) n FROM timescaledb_information.hypertables WHERE hypertable_name = 'events_measurements';`
