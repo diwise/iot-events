@@ -40,7 +40,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 	var location pgtype.Point
 	var v *float64
 	var vb *bool
-	lastObserved := time.Unix(0, 0)
+	lastObserved := time.Unix(0, 0).UTC()
 
 	or := messagecollector.ObjectResult{
 		DeviceID:     deviceID,
@@ -59,7 +59,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 		}
 
 		if ts.After(or.LastObserved) {
-			or.LastObserved = ts
+			or.LastObserved = ts.UTC()
 		}
 
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
@@ -122,7 +122,7 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 	var ts time.Time
 	var n uint64
 	var total uint64 = 0
-	lastObserved := time.Unix(0, 0)
+	lastObserved := time.Unix(0, 0).UTC()
 
 	dr := messagecollector.DeviceResult{
 		DeviceID:     deviceID,
