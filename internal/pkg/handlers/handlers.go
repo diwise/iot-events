@@ -13,7 +13,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ *slog.Logger) messaging.TopicMessageHandler {
+func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator) messaging.TopicMessageHandler {
 	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) {
 
 		ctx = logging.NewContextWithLogger(ctx, logger)
@@ -47,6 +47,6 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			return
 		}
 
-		m.Publish(ctx, mediator.NewMessage(uuid.New().String(), d.TopicName(), tenant, d.Body()))
+		m.Publish(ctx, mediator.NewMessage(ctx, uuid.New().String(), d.TopicName(), tenant, d.Body()))
 	}
 }

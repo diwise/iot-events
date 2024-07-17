@@ -7,18 +7,29 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
+	"github.com/diwise/iot-events/internal/pkg/storage"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
 	"github.com/go-chi/chi/v5"
 	"github.com/riandyrn/otelchi"
 	"github.com/rs/cors"
+	"go.opentelemetry.io/otel"
 )
 
-func New(ctx context.Context, serviceName string, mediator mediator.Mediator, policies io.Reader) (chi.Router, error) {
+var tracer = otel.Tracer("iot-events/api")
+
+func New(ctx context.Context, serviceName string, mediator mediator.Mediator, storage storage.Storage, policies io.Reader) (chi.Router, error) {
+	log := logging.GetFromContext(ctx)
+
 	r := chi.NewRouter()
 
 	r.Use(cors.New(cors.Options{
@@ -41,16 +52,85 @@ func New(ctx context.Context, serviceName string, mediator mediator.Mediator, po
 	r.Route("/api/v0", func(r chi.Router) {
 		r.Group(func(r chi.Router) {
 			r.Use(authenticator)
-			r.Get("/events", EventSource(ctx, mediator))
+			r.Get("/events", EventSource(mediator, log))
+			r.Get("/measurements", NewQueryMeasurementsHandler(storage, log))
+			r.Get("/measurements/{deviceID}", NewQueryDeviceHandler(storage, log))
 		})
 	})
 
-	KeepAlive(ctx, mediator)
+	KeepAlive(mediator)
 
 	return r, nil
 }
 
-func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
+func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		defer r.Body.Close()
+
+		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
+
+		ctx, span := tracer.Start(r.Context(), "query-device")
+		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
+		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
+
+		deviceID := chi.URLParam(r, "deviceID")
+		
+		if deviceID == "" {
+			logger.Error("invalid url parameter", "err", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		result := m.QueryDevice(ctx, deviceID, allowedTenants)
+		if result.Error != nil {
+			logger.Error("could not query device", "err", result.Error.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		resp := NewApiResponse(r, result.Data, result.Count, result.TotalCount, result.Offset, result.Limit)
+
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp.Byte())
+	}
+}
+
+func NewQueryMeasurementsHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		defer r.Body.Close()
+
+		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
+
+		ctx, span := tracer.Start(r.Context(), "query-measurements")
+		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
+		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
+
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			logger.Error("invalid query parameter", "err", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		result := m.Query(ctx, messagecollector.ParseQuery(q), allowedTenants)
+		if result.Error != nil {
+			logger.Error("could not query measurements", "err", result.Error.Error())
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		resp := NewApiResponse(r, result.Data, result.Count, result.TotalCount, result.Offset, result.Limit)
+
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp.Byte())
+	}
+}
+
+func EventSource(m mediator.Mediator, log *slog.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		flusher, ok := w.(http.Flusher)
 
@@ -65,7 +145,9 @@ func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
 		w.Header().Set("X-Accel-Buffering", "no")
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
+		ctx := logging.NewContextWithLogger(r.Context(), log)
+
+		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
 		subscriber := mediator.NewSubscriber(allowedTenants)
 
 		m.Register(subscriber)
@@ -123,8 +205,10 @@ func EventSource(ctx context.Context, m mediator.Mediator) http.HandlerFunc {
 	}
 }
 
-func KeepAlive(ctx context.Context, m mediator.Mediator) {
-	msg := mediator.NewMessage("", "keep-alive", "default", nil)
+func KeepAlive(m mediator.Mediator) {
+	ctx := context.Background()
+
+	msg := mediator.NewMessage(ctx, "", "keep-alive", "default", nil)
 
 	go func() {
 		for {

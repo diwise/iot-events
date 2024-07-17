@@ -10,7 +10,9 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/handlers"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
+	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/buildinfo"
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
@@ -36,21 +38,6 @@ func main() {
 	mediator := mediator.New(logger)
 	go mediator.Start(ctx)
 
-	api, err := func() (chi.Router, error) {
-		policies, err := os.Open(opaFilePath)
-		if err != nil {
-			return nil, fmt.Errorf("unable to open opa policy file: %w", err)
-		}
-		defer policies.Close()
-
-		return api.New(ctx, serviceName, mediator, policies)
-	}()
-	if err != nil {
-		panic(err)
-	}
-
-	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(ctx, "SERVICE_PORT", "8080"))
-
 	config := messaging.LoadConfiguration(ctx, serviceName, logger)
 	messenger, err := messaging.Initialize(ctx, config)
 	if err != nil {
@@ -60,10 +47,33 @@ func main() {
 
 	topic := env.GetVariableOrDefault(ctx, "RABBITMQ_TOPIC", "#")
 
-	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator, logger))
+	messenger.RegisterTopicMessageHandler(topic, handlers.NewTopicMessageHandler(messenger, mediator))
 
-	ce := cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator, logger)
-	ce.Start()
+	storage, err := storage.New(ctx, storage.LoadConfiguration(ctx))
+	if err != nil {
+		fatal(ctx, "faild to connect to storage", err)
+	}
+
+	ce := cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator)
+	ce.Start(ctx)
+
+	mc := messagecollector.NewMessageCollector(mediator, storage)
+	mc.Start(ctx)
+
+	api, err := func() (chi.Router, error) {
+		policies, err := os.Open(opaFilePath)
+		if err != nil {
+			return nil, fmt.Errorf("unable to open opa policy file: %w", err)
+		}
+		defer policies.Close()
+
+		return api.New(ctx, serviceName, mediator, storage, policies)
+	}()
+	if err != nil {
+		panic(err)
+	}
+
+	apiPort := fmt.Sprintf(":%s", env.GetVariableOrDefault(ctx, "SERVICE_PORT", "8080"))
 
 	http.ListenAndServe(apiPort, api)
 }
