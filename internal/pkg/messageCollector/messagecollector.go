@@ -23,6 +23,7 @@ type MeasurementStorer interface {
 type MeasurementRetriever interface {
 	Query(ctx context.Context, q QueryParams, tenants []string) QueryResult
 	QueryDevice(ctx context.Context, deviceID string, tenants []string) QueryResult
+	QueryObject(ctx context.Context, deviceID, urn string, tenants []string) QueryResult
 }
 
 type MessageCollector struct {

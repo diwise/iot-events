@@ -75,29 +75,42 @@ type Measurement struct {
 }
 
 type MeasurementResult struct {
-	DeviceID string  `json:"deviceID"`
-	ID       string  `json:"id"`
-	Name     string  `json:"name"`
-	Tenant   string  `json:"tenant"`
-	Urn      string  `json:"urn"`
-	Lat      float64 `json:"lat"`
-	Lon      float64 `json:"lon"`
-	Values   []Value `json:"values"`
+	ID       string   `json:"id"`
+	DeviceID string   `json:"deviceID"`
+	Name     string   `json:"name"`
+	Urn      string   `json:"urn"`
+	Lat      *float64 `json:"lat"`
+	Lon      *float64 `json:"lon"`
+	Values   []Value  `json:"values"`
+	Tenant   string   `json:"tenant"`
 }
 
 type Value struct {
-	Timestamp   time.Time `json:"timestamp"`
+	ID          *string   `json:"id,omitempty"`
+	Name        *string   `json:"n,omitempty"`
 	BoolValue   *bool     `json:"vb,omitempty"`
 	StringValue string    `json:"vs,omitempty"`
-	Unit        string    `json:"unit,omitempty"`
 	Value       *float64  `json:"v,omitempty"`
+	Unit        string    `json:"unit,omitempty"`
+	Timestamp   time.Time `json:"timestamp"`
+	Link        *string   `json:"link,omitempty"`
 }
 
 type DeviceResult struct {
 	DeviceID     string            `json:"deviceID"`
 	LastObserved time.Time         `json:"lastObserved"`
-	TotalCount   uint64            `json:"totalCount"`
+	TotalCount   *uint64           `json:"totalCount,omitempty"`
 	Measurements []MeasurementType `json:"measurements"`
+}
+
+type ObjectResult struct {
+	DeviceID     string    `json:"deviceID"`
+	Urn          *string   `json:"urn,omitempty"`
+	LastObserved time.Time `json:"lastObserved"`
+	Lat          *float64  `json:"lat,omitempty"`
+	Lon          *float64  `json:"lon,omitempty"`
+	TotalCount   *uint64   `json:"totalCount,omitempty"`
+	Measurements []Value   `json:"measurements"`
 }
 
 type MeasurementType struct {

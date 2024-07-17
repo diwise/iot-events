@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"regexp"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
@@ -75,14 +76,33 @@ func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Lo
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
 		deviceID := chi.URLParam(r, "deviceID")
-		
+
 		if deviceID == "" {
 			logger.Error("invalid url parameter", "err", err.Error())
 			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		result := m.QueryDevice(ctx, deviceID, allowedTenants)
+		validateURN := func(urn string) bool {
+			pattern := `^urn:oma:lwm2m:ext:\d+$`
+			re := regexp.MustCompile(pattern)
+			return re.MatchString(urn)
+		}
+
+		var result messagecollector.QueryResult
+
+		urn := r.URL.Query().Get("urn")
+
+		if urn != "" {
+			if !validateURN(urn) {
+				logger.Error("invalid urn", "err", err.Error())
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			result = m.QueryObject(ctx, deviceID, urn, allowedTenants)
+		} else {
+			result = m.QueryDevice(ctx, deviceID, allowedTenants)
+		}
 		if result.Error != nil {
 			logger.Error("could not query device", "err", result.Error.Error())
 			w.WriteHeader(http.StatusInternalServerError)
