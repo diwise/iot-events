@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -91,8 +90,7 @@ func (c *collector) run(ctx context.Context, m mediator.Mediator) {
 				continue
 			}
 
-			ctx := logging.NewContextWithLogger(msg.Context(), log, slog.String("message_id", msg.ID()), slog.String("message_type", msg.Type()))
-			ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+			ctx, cancel := context.WithTimeout(msg.Context(), 30*time.Second)
 			defer cancel()
 
 			err = store(ctx, c.s, incoming.Pack.Clone())
@@ -170,8 +168,8 @@ func (c *collector) Mailbox() chan mediator.Message {
 	return c.inbox
 }
 
-func (c *collector) AcceptIfValid(m mediator.Message) bool {
-	if !strings.Contains(m.Type(), "message.") {
+func (c *collector) Handle(m mediator.Message) bool {
+	if !strings.HasPrefix(m.Type(), "message."){
 		return false
 	}
 

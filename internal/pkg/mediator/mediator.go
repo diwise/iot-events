@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/google/uuid"
 )
 
@@ -74,7 +73,7 @@ type Subscriber interface {
 	ID() string
 	Tenants() []string
 	Mailbox() chan Message
-	AcceptIfValid(m Message) bool
+	Handle(m Message) bool
 }
 
 type subscriberImpl struct {
@@ -106,7 +105,7 @@ func (s *subscriberImpl) Tenants() []string {
 func (s *subscriberImpl) Mailbox() chan Message {
 	return s.inbox
 }
-func (s *subscriberImpl) AcceptIfValid(m Message) bool {
+func (s *subscriberImpl) Handle(m Message) bool {
 	for _, t := range s.tenants {
 		if t == m.Tenant() {
 			s.inbox <- m
@@ -163,14 +162,6 @@ func (m *mediatorImpl) SubscriberCount() int {
 }
 
 func (m *mediatorImpl) Publish(ctx context.Context, msg Message) {
-	logger := logging.GetFromContext(ctx)
-	logger.Debug(
-		"publishing message to tenant",
-		"message_type", msg.Type(),
-		"message_id", msg.ID(),
-		"tenant", msg.Tenant(),
-	)
-
 	m.inbox <- msg
 }
 
@@ -197,7 +188,7 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 			subscriberCountQueried <- len(m.subscribers)
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
-				s.AcceptIfValid(msg)
+				s.Handle(msg)
 			}
 		}
 	}

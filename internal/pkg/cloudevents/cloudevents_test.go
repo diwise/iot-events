@@ -134,10 +134,10 @@ func TestOnlyAcceptIfValid(t *testing.T) {
 	}()
 
 	subscriber.messageType = "device.statusUpdated"
-	is.True(subscriber.AcceptIfValid(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.messageType = "another.messageType"
-	is.True(!subscriber.AcceptIfValid(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(!subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.done <- true
 

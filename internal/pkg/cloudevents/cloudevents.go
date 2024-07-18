@@ -83,7 +83,7 @@ func (s *ceSubscriberImpl) Tenants() []string {
 func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
 	return s.inbox
 }
-func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
+func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
 	if m.Type() != s.messageType {
 		return false
 	}
