@@ -220,12 +220,22 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		WHERE "id" = @id 
 		  AND tenant=any(@tenants)
 	`
-	order := `
-		ORDER BY "time" ASC
+	orderAsc := `
+		ORDER BY "time" ASC		
+	`
+	orderDesc := `
+		ORDER BY "time" DESC		
+	`
+	offsetLimit := `
 		OFFSET @offset LIMIT @limit;
 	`
 
-	sql = sql + where + timeRelSql + order
+	order := orderAsc
+	if q.GetBool("lastN") {
+		order = orderDesc
+	}
+
+	sql = sql + where + timeRelSql + order + offsetLimit
 
 	offset := q.GetUint64OrDefault("offset", 0)
 	limit := q.GetUint64OrDefault("limit", 10)
