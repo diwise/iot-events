@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"golang.org/x/sys/unix"
 
 	cloud "github.com/cloudevents/sdk-go/v2"
@@ -25,25 +25,19 @@ var ErrConnRefused = fmt.Errorf("connection refused")
 type CloudEvents struct {
 	config *Config
 	m      mediator.Mediator
-	log    *slog.Logger
 }
 
-func New(cfg *Config, m mediator.Mediator, logger *slog.Logger) CloudEvents {
+func New(cfg *Config, m mediator.Mediator) CloudEvents {
 	return CloudEvents{
 		config: cfg,
 		m:      m,
-		log:    logger,
 	}
 }
 
-func (c CloudEvents) Start() {
+func (c CloudEvents) Start(ctx context.Context) {
 	for i, s := range c.config.Subscribers {
 
 		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
-		logger := c.log.With(
-			slog.String("subscriber_id", sId),
-			slog.String("endpoint", s.Endpoint),
-		)
 
 		var idPatterns []string
 		for _, e := range s.Entities {
@@ -57,7 +51,6 @@ func (c CloudEvents) Start() {
 			tenants:     s.Tenants,
 			endpoint:    s.Endpoint,
 			messageType: s.Type,
-			logger:      logger,
 			idPatterns:  idPatterns,
 			source:      s.Source,
 			eventType:   s.EventType,
@@ -65,7 +58,7 @@ func (c CloudEvents) Start() {
 
 		c.m.Register(subscriber)
 
-		go subscriber.run(c.m, cloudEventSenderFunc)
+		go subscriber.run(ctx, c.m, cloudEventSenderFunc)
 	}
 }
 
@@ -75,7 +68,6 @@ type ceSubscriberImpl struct {
 	id          string
 	idPatterns  []string
 	inbox       chan mediator.Message
-	logger      *slog.Logger
 	messageType string
 	tenants     []string
 	source      string
@@ -91,7 +83,7 @@ func (s *ceSubscriberImpl) Tenants() []string {
 func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
 	return s.inbox
 }
-func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
+func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
 	if m.Type() != s.messageType {
 		return false
 	}
@@ -101,7 +93,7 @@ func (s *ceSubscriberImpl) AcceptIfValid(m mediator.Message) bool {
 	return true
 }
 
-func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {
+func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {
 	defer func() {
 		m.Unregister(s)
 	}()
@@ -134,23 +126,28 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 		return false
 	}
 
+	log := logging.GetFromContext(ctx)
+
 	for {
 		select {
+		case <-ctx.Done():
+			s.done <- true
 		case b := <-s.done:
-			s.logger.Debug(fmt.Sprintf("Done! %t", b))
+			log.Debug(fmt.Sprintf("Done! %t", b))
 			return
 		case msg := <-s.inbox:
-			s.logger.Debug("handle message", "message_type", msg.Type(), "message_id", msg.ID())
+			mLog := logging.GetFromContext(msg.Context())
+			mLog.Debug("handle message", "message_type", msg.Type(), "message_id", msg.ID())
 
 			if !contains(s.tenants, msg.Tenant()) {
-				s.logger.Debug("tenant not supported by this subscriber")
+				mLog.Debug("tenant not supported by this subscriber")
 				break
 			}
 
 			messageBody := messageBody{}
 			err := json.Unmarshal(msg.Data(), &messageBody)
 			if err != nil {
-				s.logger.Error("could not unmarshal message body", "err", err.Error())
+				mLog.Error("could not unmarshal message body", "err", err.Error())
 				break
 			}
 
@@ -164,7 +161,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			}
 
 			if id == "" {
-				s.logger.Error("message body missing id property")
+				mLog.Error("message body missing id property")
 				break
 			}
 
@@ -174,7 +171,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			}
 
 			if !matchIfNotEmpty(s.idPatterns, id) {
-				s.logger.Debug("no matching id pattern", "message_id", id)
+				mLog.Debug("no matching id pattern", "message_id", id)
 				break
 			}
 
@@ -190,7 +187,7 @@ func (s *ceSubscriberImpl) run(m mediator.Mediator, eventSenderFunc CloudEventSe
 			err = eventSenderFunc(ei)
 
 			if err != nil {
-				s.logger.Error("failed to send event", "err", err.Error())
+				mLog.Error("failed to send event", "err", err.Error())
 				if errors.Is(err, ErrCloudEventClientError) {
 					s.done <- true
 				}

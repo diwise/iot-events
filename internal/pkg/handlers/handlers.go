@@ -13,10 +13,11 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator, _ *slog.Logger) messaging.TopicMessageHandler {
+func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator) messaging.TopicMessageHandler {
 	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) {
-
-		ctx = logging.NewContextWithLogger(ctx, logger)
+		messageID := uuid.New().String()
+		
+		ctx = logging.NewContextWithLogger(ctx, logger, slog.String("message_id", messageID), slog.String("topic", d.TopicName()), slog.String("message_type", d.ContentType()))
 
 		msg := struct {
 			Tenant *string     `json:"tenant,omitempty"`
@@ -31,15 +32,15 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 
 		tenant := ""
 
-		if msg.Tenant != nil {
-			tenant = *msg.Tenant
-		}
-
-		if tenant == "" && msg.Pack != nil {
+		if msg.Pack != nil {
 			t, ok := msg.Pack.GetStringValue(senml.FindByName("tenant"))
 			if ok {
 				tenant = t
 			}
+		}
+
+		if tenant == "" && msg.Tenant != nil {
+			tenant = *msg.Tenant
 		}
 
 		if tenant == "" {
@@ -47,6 +48,6 @@ func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator,
 			return
 		}
 
-		m.Publish(ctx, mediator.NewMessage(uuid.New().String(), d.TopicName(), tenant, d.Body()))
+		m.Publish(ctx, mediator.NewMessage(ctx, messageID, d.TopicName(), tenant, d.Body()))
 	}
 }
