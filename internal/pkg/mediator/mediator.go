@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/google/uuid"
 )
 
@@ -17,18 +16,20 @@ type Message interface {
 	Tenant() string
 	Retry() int
 	Timestamp() time.Time
+	Context() context.Context
 }
 
 type messageImpl struct {
-	Id_        string    `json:"id"`
-	Name_      string    `json:"name"`
-	Tenant_    string    `json:"tenant"`
-	Data_      []byte    `json:"data"`
-	Retry_     int       `json:"retry"`
-	Timestamp_ time.Time `json:"timestamp"`
+	Id_        string          `json:"id"`
+	Name_      string          `json:"name"`
+	Tenant_    string          `json:"tenant"`
+	Data_      []byte          `json:"data"`
+	Retry_     int             `json:"retry"`
+	Timestamp_ time.Time       `json:"timestamp"`
+	ctx        context.Context `json:"-"`
 }
 
-func NewMessage(id, name, tenant string, data []byte) Message {
+func NewMessage(ctx context.Context, id, name, tenant string, data []byte) Message {
 	return &messageImpl{
 		Id_:        id,
 		Name_:      name,
@@ -36,6 +37,7 @@ func NewMessage(id, name, tenant string, data []byte) Message {
 		Data_:      data,
 		Retry_:     0,
 		Timestamp_: time.Now().UTC(),
+		ctx:        ctx,
 	}
 }
 
@@ -63,11 +65,15 @@ func (m *messageImpl) Timestamp() time.Time {
 	return m.Timestamp_
 }
 
+func (m *messageImpl) Context() context.Context {
+	return m.ctx
+}
+
 type Subscriber interface {
 	ID() string
 	Tenants() []string
 	Mailbox() chan Message
-	AcceptIfValid(m Message) bool
+	Handle(m Message) bool
 }
 
 type subscriberImpl struct {
@@ -99,7 +105,7 @@ func (s *subscriberImpl) Tenants() []string {
 func (s *subscriberImpl) Mailbox() chan Message {
 	return s.inbox
 }
-func (s *subscriberImpl) AcceptIfValid(m Message) bool {
+func (s *subscriberImpl) Handle(m Message) bool {
 	for _, t := range s.tenants {
 		if t == m.Tenant() {
 			s.inbox <- m
@@ -156,13 +162,6 @@ func (m *mediatorImpl) SubscriberCount() int {
 }
 
 func (m *mediatorImpl) Publish(ctx context.Context, msg Message) {
-	logger := logging.GetFromContext(ctx)
-	logger.Debug(
-		"publishing message to tenant",
-		"message_type", msg.Type(),
-		"message_id", msg.ID(),
-		"tenant", msg.Tenant(),
-	)
 	m.inbox <- msg
 }
 
@@ -189,7 +188,7 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 			subscriberCountQueried <- len(m.subscribers)
 		case msg := <-m.inbox:
 			for _, s := range m.subscribers {
-				s.AcceptIfValid(msg)
+				s.Handle(msg)
 			}
 		}
 	}

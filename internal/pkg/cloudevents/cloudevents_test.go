@@ -13,13 +13,14 @@ import (
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/matryer/is"
 )
 
 func TestThatCloudEventIsSent(t *testing.T) {
 	is := is.New(t)
-
-	ctx := context.Background()
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))	
+	ctx := logging.NewContextWithLogger(context.Background(), logger)
 	defer ctx.Done()
 
 	resultChan := make(chan string)
@@ -36,17 +37,16 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	cfg, err := LoadConfiguration(r)
 	is.NoErr(err)
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	m := mediator.New(logger)
 	go m.Start(ctx)
 
-	New(cfg, m, logger).Start()
+	New(cfg, m).Start(context.Background())
 
 	now := time.Now()
 
 	ds := newDeviceStatusUpdated(now)
 
-	m.Publish(ctx, mediator.NewMessage("messageID", "device.statusUpdated", "default", ds))
+	m.Publish(ctx, mediator.NewMessage(ctx, "messageID", "device.statusUpdated", "default", ds))
 
 	result := <-resultChan
 
@@ -63,12 +63,12 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "secret", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "secret", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -83,12 +83,12 @@ func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
+	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -106,12 +106,12 @@ func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(0, calls)
@@ -134,10 +134,10 @@ func TestOnlyAcceptIfValid(t *testing.T) {
 	}()
 
 	subscriber.messageType = "device.statusUpdated"
-	is.True(subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.messageType = "another.messageType"
-	is.True(!subscriber.AcceptIfValid(mediator.NewMessage("id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
+	is.True(!subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
 
 	subscriber.done <- true
 
@@ -156,12 +156,12 @@ func TestShouldBeSent(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
+	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
 	subscriber.done <- true
 
 	is.Equal(1, calls)
@@ -180,7 +180,7 @@ func TestShouldBeSentForSecondPattern(t *testing.T) {
 
 	var calls int = 0
 
-	go subscriber.run(&m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -192,7 +192,7 @@ func TestShouldBeSentForSecondPattern(t *testing.T) {
 	dsu.DeviceID = "se:servanet:lora:msva:05598380"
 	b, _ := json.Marshal(dsu)
 
-	subscriber.inbox <- mediator.NewMessage("id", "device.statusUpdated", "default", b)
+	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", b)
 	subscriber.done <- true
 
 	is.Equal(1, calls)
@@ -203,8 +203,8 @@ func TestNewWithEmptyConfig(t *testing.T) {
 	m := mediator.MediatorMock{
 		RegisterFunc: func(subscriber mediator.Subscriber) {},
 	}
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	New(LoadConfigurationFromFile(""), &m, logger).Start()
+
+	New(LoadConfigurationFromFile(""), &m).Start(context.Background())
 
 	is.Equal(0, len(m.RegisterCalls()))
 }
@@ -221,8 +221,7 @@ func TestNewWithEmptyConfigFile(t *testing.T) {
 	cfg, err := LoadConfiguration(configReader)
 	is.NoErr(err)
 
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	New(cfg, &m, logger).Start()
+	New(cfg, &m).Start(context.Background())
 
 	is.Equal(0, len(m.RegisterCalls()))
 }
@@ -231,14 +230,12 @@ func testSetup(t *testing.T) (*is.I, *ceSubscriberImpl) {
 	is := is.New(t)
 
 	subscriber := &ceSubscriberImpl{
-		id:        "subscriber-01",
-		done:      make(chan bool),
-		inbox:     make(chan mediator.Message),
-		endpoint:  "http://server.url",
-		logger:    slog.New(slog.NewTextHandler(io.Discard, nil)),
-		source:    "source",
-		eventType: "type",
-
+		id:          "subscriber-01",
+		done:        make(chan bool),
+		inbox:       make(chan mediator.Message),
+		endpoint:    "http://server.url",
+		source:      "source",
+		eventType:   "type",
 		tenants:     []string{"default"},
 		messageType: "device.statusUpdated",
 		idPatterns:  []string{},
