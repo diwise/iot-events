@@ -15,6 +15,13 @@ type QueryResult struct {
 	Error      error
 }
 
+type AggrResult struct {
+	Average *float64 `json:"avg,omitempty"`
+	Total   *float64 `json:"sum,omitempty"`
+	Minimum *float64 `json:"min,omitempty"`
+	Maximum *float64 `json:"max,omitempty"`
+}
+
 type QueryParams map[string][]string
 
 func ParseQuery(q map[string][]string) QueryParams {
