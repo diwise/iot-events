@@ -209,7 +209,9 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 	`
 
 	order := orderAsc
-	if q.GetBool("lastN") {
+	
+	lastN := q.GetBool("lastN") 
+	if lastN {
 		order = orderDesc
 	}
 
@@ -260,6 +262,11 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 	})
 	if err != nil {
 		return errorResult(err.Error())
+	}
+
+	reverse := q.GetBool("reverse")
+	if reverse {
+		slices.Reverse(m.Values)
 	}
 
 	m.DeviceID = device_id
