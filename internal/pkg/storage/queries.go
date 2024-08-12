@@ -3,17 +3,21 @@ package storage
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"slices"
 	"strings"
 	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/pgtype"
 	"github.com/jackc/pgx/v5"
 )
 
 func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) messagecollector.QueryResult {
+	log := logging.GetFromContext(ctx)
+
 	sql := `
 		SELECT "time", id, location, n, v, vs, vb, unit, tenant
 		FROM (
@@ -32,6 +36,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult(err.Error())
 	}
 
@@ -100,6 +105,8 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 		return errorResult("query contains no deviceID")
 	}
 
+	log := logging.GetFromContext(ctx)
+
 	sql := `
 		SELECT "id", urn, MAX("time"), count(*) as "n"
 		FROM events_measurements
@@ -115,6 +122,7 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult(err.Error())
 	}
 
@@ -131,7 +139,6 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 	}
 
 	_, err = pgx.ForEachRow(rows, []any{&id, &urn, &ts, &n}, func() error {
-
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
 
 		t := messagecollector.MeasurementType{
@@ -177,7 +184,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		return s.AggrQuery(ctx, q, tenants)
 	}
 
-	timeRelSql, timeAt, endTimeAt, err := getTimeRelSql(q)
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
 		return errorResult(err.Error())
 	}
@@ -220,6 +227,8 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		"endTimeAt": endTimeAt,
 	}
 
+	log := logging.GetFromContext(ctx)
+
 	var ts time.Time
 	var device_id, urn, n, vs, unit, tenant string
 	var location pgtype.Point
@@ -229,6 +238,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult(err.Error())
 	}
 
@@ -288,9 +298,13 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 	}
 
 	for _, m := range methods {
-		if !slices.Contains([]string{"avg", "min", "max", "sum"}, m) {
-			return errorResult(fmt.Sprintf("invalid aggrMethods, should be [avg, min, max, sum] is %s", m))
+		if !slices.Contains([]string{"avg", "min", "max", "sum", "rate"}, m) {
+			return errorResult(fmt.Sprintf("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m))
 		}
+	}
+
+	if slices.Contains(methods, "rate") {
+		return s.RateQuery(ctx, q, tenants)
 	}
 
 	sql := `	
@@ -308,10 +322,12 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 		  AND tenant=any(@tenants)
 	`
 
-	timeRelSql, timeAt, endTimeAt, err := getTimeRelSql(q)
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
 		return errorResult(err.Error())
 	}
+
+	log := logging.GetFromContext(ctx)
 
 	args := pgx.NamedArgs{
 		"id":        id,
@@ -324,6 +340,7 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult(err.Error())
 	}
 
@@ -356,7 +373,87 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 	}
 }
 
-func getTimeRelSql(q messagecollector.QueryParams) (string, time.Time, time.Time, error) {
+func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	id, ok := q.GetString("id")
+	if !ok {
+		return errorResult("query contains no ID")
+	}
+
+	aggrMethods, ok := q.GetString("aggrMethods")
+	if !ok {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	methods := strings.Split(aggrMethods, ",")
+	if len(methods) == 0 {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	if !slices.Contains(methods, "rate") {
+		return errorResult("query contains no rate function")
+	}
+
+	timeUnit, ok := q.GetString("timeUnit")
+	if !ok {
+		return errorResult("query contains no timeUnit parameter")
+	}
+
+	if !slices.Contains([]string{"hour", "day"}, timeUnit) {
+		return errorResult(fmt.Sprintf("invalid timeUnit, should be [hour, day] is %s", timeUnit))
+	}
+
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	args := pgx.NamedArgs{
+		"id":        id,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
+	}
+
+	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements WHERE \"id\" = @id AND tenant=any(@tenants) ", timeUnit)
+	sql += timeRelSql + " "
+	sql += "GROUP BY e;"
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult(err.Error())
+	}
+
+	var ts time.Time
+	var n uint64
+
+	result := make([]messagecollector.RateResult, 0)
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &n}, func() error {
+		value := messagecollector.RateResult{
+			Timestamp: ts.UTC(),
+			Count:     n,
+		}
+		result = append(result, value)
+		return nil
+	})
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	return messagecollector.QueryResult{
+		Data:       result,
+		Count:      uint64(len(result)),
+		Offset:     0,
+		Limit:      uint64(len(result)),
+		TotalCount: uint64(len(result)),
+		Error:      nil,
+	}
+}
+
+func getTimeRelSQL(q messagecollector.QueryParams) (string, time.Time, time.Time, error) {
 	timeRel, ok := q.GetString("timeRel")
 	if ok {
 		if !slices.Contains([]string{"after", "before", "between"}, timeRel) {
