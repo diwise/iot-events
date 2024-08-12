@@ -174,14 +174,14 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 }
 
 func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	_, ok := q.GetString("aggrMethods")
+	if ok {
+		return s.AggrQuery(ctx, q, tenants)
+	}
+
 	id, ok := q.GetString("id")
 	if !ok {
 		return errorResult("query contains no ID")
-	}
-
-	_, ok = q.GetString("aggrMethods")
-	if ok {
-		return s.AggrQuery(ctx, q, tenants)
 	}
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
@@ -282,11 +282,6 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 }
 
 func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	id, ok := q.GetString("id")
-	if !ok {
-		return errorResult("query contains no ID")
-	}
-
 	aggrMethods, ok := q.GetString("aggrMethods")
 	if !ok {
 		return errorResult("query contains no aggregate function parameter(s)")
@@ -305,6 +300,11 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 
 	if slices.Contains(methods, "rate") {
 		return s.RateQuery(ctx, q, tenants)
+	}
+
+	id, ok := q.GetString("id")
+	if !ok {
+		return errorResult("query contains no ID")
 	}
 
 	sql := `	
@@ -374,9 +374,12 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 }
 
 func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	id, ok := q.GetString("id")
-	if !ok {
-		return errorResult("query contains no ID")
+	id, idOk := q.GetString("id")
+	device_id, deviceIdOk := q.GetString("device_id")
+	urn, urnOk := q.GetString("urn")
+
+	if !idOk && !deviceIdOk {
+		return errorResult("query contains no ID or device ID")
 	}
 
 	aggrMethods, ok := q.GetString("aggrMethods")
@@ -411,12 +414,24 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 
 	args := pgx.NamedArgs{
 		"id":        id,
+		"device_id": device_id,
+		"urn":       urn,
 		"tenants":   tenants,
 		"timeAt":    timeAt,
 		"endTimeAt": endTimeAt,
 	}
 
-	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements WHERE \"id\" = @id AND tenant=any(@tenants) ", timeUnit)
+	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements ", timeUnit)
+	sql += "WHERE tenant=any(@tenants)"
+	if idOk {
+		sql += "AND \"id\" = @id "
+	}
+	if deviceIdOk {
+		sql += "AND \"device_id\" = @device_id "
+	}
+	if urnOk {
+		sql += "AND \"urn\" = @urn " 
+	}
 	sql += timeRelSql + " "
 	sql += "GROUP BY e;"
 
