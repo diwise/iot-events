@@ -155,3 +155,15 @@ type MeasurementType struct {
 	LastObserved time.Time `json:"lastObserved"`
 	Link         string    `json:"link"`
 }
+
+type AggrResult struct {
+	Average *float64 `json:"avg,omitempty"`
+	Total   *float64 `json:"sum,omitempty"`
+	Minimum *float64 `json:"min,omitempty"`
+	Maximum *float64 `json:"max,omitempty"`
+}
+
+type RateResult struct {
+	Timestamp time.Time `json:"timestamp"`
+	Count     uint64    `json:"count"`
+}

@@ -3,9 +3,10 @@ package storage
 import (
 	"context"
 
-	 "github.com/diwise/iot-events/internal/pkg/messageCollector"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Storage struct {
@@ -13,10 +14,10 @@ type Storage struct {
 }
 
 func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error {
-	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant)
-			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant)`
+	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
+			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)`
 
-	_, err := s.conn.Exec(ctx, sql, pgx.NamedArgs{
+	args := pgx.NamedArgs{
 		"time":      m.Timestamp.UTC(),
 		"id":        m.ID,
 		"device_id": m.DeviceID,
@@ -29,7 +30,16 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 		"vb":        m.BoolValue,
 		"unit":      m.Unit,
 		"tenant":    m.Tenant,
-	})
+		"trace_id":  nil,
+	}
+
+	spanCtx := trace.SpanContextFromContext(ctx)
+	if spanCtx.HasTraceID() {
+		traceID := spanCtx.TraceID()
+		args["trace_id"] = traceID.String()
+	}
+
+	_, err := s.conn.Exec(ctx, sql, args)
 	if err != nil {
 		return err
 	}
@@ -81,7 +91,12 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			vb 			BOOLEAN NULL,			
 			unit 		TEXT NOT NULL DEFAULT '',
 			tenant 		TEXT NOT NULL,
-			UNIQUE ("time", "id"));`
+			created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			trace_id 	TEXT NULL,			
+			UNIQUE ("time", "id"));
+			
+			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS created_on timestamp with time zone NULL DEFAULT CURRENT_TIMESTAMP;
+			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;`
 
 	countHyperTable := `SELECT COUNT(*) n FROM timescaledb_information.hypertables WHERE hypertable_name = 'events_measurements';`
 
