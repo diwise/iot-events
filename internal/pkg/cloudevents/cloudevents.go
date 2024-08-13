@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"golang.org/x/sys/unix"
 
@@ -137,10 +139,8 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 			return
 		case msg := <-s.inbox:
 			mLog := logging.GetFromContext(msg.Context())
-			mLog.Debug("handle message", "message_type", msg.Type(), "message_id", msg.ID())
 
 			if !contains(s.tenants, msg.Tenant()) {
-				mLog.Debug("tenant not supported by this subscriber")
 				break
 			}
 
@@ -151,17 +151,10 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 				break
 			}
 
-			var id string
-			if messageBody.DeviceID != nil {
-				id = *messageBody.DeviceID
-			} else if messageBody.FunctionID != nil {
-				id = *messageBody.FunctionID
-			} else if messageBody.SensorID != nil {
-				id = *messageBody.SensorID
-			}
+			id := getIDFromMessage(messageBody)
 
 			if id == "" {
-				mLog.Error("message body missing id property")
+				mLog.Debug("message body missing id property", slog.String("message_type", msg.Type()))
 				break
 			}
 
@@ -171,7 +164,6 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 			}
 
 			if !matchIfNotEmpty(s.idPatterns, id) {
-				mLog.Debug("no matching id pattern", "message_id", id)
 				break
 			}
 
@@ -197,6 +189,32 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 			}
 		}
 	}
+}
+
+func getIDFromMessage(m messageBody) string {
+	if m.Pack != nil {
+		rec, ok := m.Pack.GetRecord(senml.FindByName("0"))
+		if ok {
+			parts := strings.Split(rec.Name, "/")
+			if len(parts) > 0 && len(parts[0]) > 0 {
+				return parts[0]
+			}
+		}
+	}
+
+	if m.DeviceID != nil {
+		return *m.DeviceID
+	}
+
+	if m.FunctionID != nil {
+		return *m.FunctionID
+	}
+
+	if m.SensorID != nil {
+		return *m.SensorID
+	}
+
+	return ""
 }
 
 func cloudEventSenderFunc(evt eventInfo) error {
@@ -236,8 +254,9 @@ type eventInfo struct {
 }
 
 type messageBody struct {
-	FunctionID *string    `json:"id,omitempty"`
-	DeviceID   *string    `json:"deviceID,omitempty"`
-	SensorID   *string    `json:"sensorID,omitempty"`
-	Timestamp  *time.Time `json:"timestamp,omitempty"`
+	FunctionID *string     `json:"id,omitempty"`
+	DeviceID   *string     `json:"deviceID,omitempty"`
+	SensorID   *string     `json:"sensorID,omitempty"`
+	Timestamp  *time.Time  `json:"timestamp,omitempty"`
+	Pack       *senml.Pack `json:"pack,omitempty"`
 }
