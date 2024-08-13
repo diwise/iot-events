@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -87,6 +88,9 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
 		return errorResult(err.Error())
 	}
 
@@ -158,6 +162,9 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
 		return errorResult(err.Error())
 	}
 
@@ -209,8 +216,8 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 	`
 
 	order := orderAsc
-	
-	lastN := q.GetBool("lastN") 
+
+	lastN := q.GetBool("lastN")
 	if lastN {
 		order = orderDesc
 	}
@@ -261,6 +268,9 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
 		return errorResult(err.Error())
 	}
 
@@ -353,6 +363,9 @@ func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 
 	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
 		return errorResult(err.Error())
 	}
 
@@ -437,7 +450,7 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 		sql += "AND \"device_id\" = @device_id "
 	}
 	if urnOk {
-		sql += "AND \"urn\" = @urn " 
+		sql += "AND \"urn\" = @urn "
 	}
 	sql += timeRelSql + " "
 	sql += "GROUP BY e;"
@@ -462,6 +475,9 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 		return nil
 	})
 	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
 		return errorResult(err.Error())
 	}
 
@@ -517,6 +533,12 @@ func getTimeRelSQL(q messagecollector.QueryParams) (string, time.Time, time.Time
 	}
 
 	return timeRelSql, timeAt, endTimeAt, nil
+}
+
+func noRowsFoundError() messagecollector.QueryResult {
+	return messagecollector.QueryResult{
+		Error: messagecollector.ErrNotFound,
+	}
 }
 
 func errorResult(msg string) messagecollector.QueryResult {

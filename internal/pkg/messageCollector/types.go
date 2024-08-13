@@ -1,6 +1,7 @@
 package messagecollector
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 	"time"
@@ -14,6 +15,8 @@ type QueryResult struct {
 	TotalCount uint64
 	Error      error
 }
+
+var ErrNotFound error = fmt.Errorf("not found")
 
 type QueryParams map[string][]string
 

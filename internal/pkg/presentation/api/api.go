@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -137,9 +138,13 @@ func NewQueryMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 
 		result := m.Query(ctx, messagecollector.ParseQuery(q), allowedTenants)
 		if result.Error != nil {
-			logger.Error("could not query measurements", "err", result.Error.Error())
-			w.WriteHeader(http.StatusInternalServerError)
-			return
+			if !errors.Is(result.Error, messagecollector.ErrNotFound) {
+				logger.Error("could not query measurements", "err", result.Error.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			result.Data = []any{}
 		}
 
 		resp := NewApiResponse(r, result.Data, result.Count, result.TotalCount, result.Offset, result.Limit)
