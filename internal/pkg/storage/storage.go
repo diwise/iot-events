@@ -3,9 +3,11 @@ package storage
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -17,6 +19,8 @@ type Storage struct {
 }
 
 func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error {
+	log := logging.GetFromContext(ctx)
+	
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
 			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)`
 
@@ -52,6 +56,7 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 				if err != nil {
 					return err
 				}
+				log.Debug("added 1 nanosecond to measurement", slog.String("id", m.ID))
 			}
 		}
 		return err
