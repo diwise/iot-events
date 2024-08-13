@@ -2,9 +2,14 @@ package storage
 
 import (
 	"context"
+	"errors"
+	"log/slog"
+	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -14,6 +19,8 @@ type Storage struct {
 }
 
 func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error {
+	log := logging.GetFromContext(ctx)
+	
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
 			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)`
 
@@ -41,6 +48,17 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 
 	_, err := s.conn.Exec(ctx, sql, args)
 	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			if pgErr.Code == "23505" { // duplicate key value violates unique constraint
+				args["time"] = m.Timestamp.Add(1 * time.Nanosecond).UTC()
+				_, err = s.conn.Exec(ctx, sql, args)
+				if err != nil {
+					return err
+				}
+				log.Debug("added 1 nanosecond to measurement", slog.String("id", m.ID))
+			}
+		}
 		return err
 	}
 
