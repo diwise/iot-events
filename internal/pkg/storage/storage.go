@@ -51,12 +51,12 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			if pgErr.Code == "23505" { // duplicate key value violates unique constraint
-				args["time"] = m.Timestamp.Add(1 * time.Nanosecond).UTC()
+				args["time"] = m.Timestamp.Add(1 * time.Millisecond).UTC()
 				_, err = s.conn.Exec(ctx, sql, args)
 				if err != nil {
 					return err
 				}
-				log.Debug("added 1 nanosecond to measurement", slog.String("id", m.ID))
+				log.Debug("added 1 millisecond to measurement", slog.String("id", m.ID))
 			}
 		}
 		return err
