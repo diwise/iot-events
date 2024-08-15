@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
@@ -20,9 +19,12 @@ type Storage struct {
 
 func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error {
 	log := logging.GetFromContext(ctx)
-	
+
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
-			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)`
+			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)
+			ON CONFLICT (time, id) DO UPDATE 
+			SET v = COALESCE(EXCLUDED.v, events_measurements.v), vs = COALESCE(EXCLUDED.vs, events_measurements.vs), vb = COALESCE(EXCLUDED.vb, events_measurements.vb);
+			`
 
 	args := pgx.NamedArgs{
 		"time":      m.Timestamp.UTC(),
@@ -50,14 +52,7 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
-			if pgErr.Code == "23505" { // duplicate key value violates unique constraint
-				args["time"] = m.Timestamp.Add(1 * time.Millisecond).UTC()
-				_, err = s.conn.Exec(ctx, sql, args)
-				if err != nil {
-					return err
-				}
-				log.Debug("added 1 millisecond to measurement", slog.String("id", m.ID))
-			}
+			log.Error("could not insert new measurement", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
 		}
 		return err
 	}
