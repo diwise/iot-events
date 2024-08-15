@@ -398,10 +398,6 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 	device_id, deviceIdOk := q.GetString("device_id")
 	urn, urnOk := q.GetString("urn")
 
-	if !idOk && !deviceIdOk {
-		return errorResult("query contains no ID or device ID")
-	}
-
 	aggrMethods, ok := q.GetString("aggrMethods")
 	if !ok {
 		return errorResult("query contains no aggregate function parameter(s)")
@@ -430,6 +426,14 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 		return errorResult(err.Error())
 	}
 
+	if !idOk && !deviceIdOk && !urnOk {
+		duration := endTimeAt.Sub(timeAt)
+		maxDuration := time.Duration(100 * 24 * time.Hour)
+		if duration > maxDuration {
+			return errorResult("query contains no id, deviceID or URN and duration between timeAt and endTimeAt is too large (%0.f > %0.f hours)", duration.Hours(), maxDuration.Hours())
+		}
+	}
+
 	log := logging.GetFromContext(ctx)
 
 	args := pgx.NamedArgs{
@@ -442,7 +446,7 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 	}
 
 	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements ", timeUnit)
-	sql += "WHERE tenant=any(@tenants)"
+	sql += "WHERE tenant=any(@tenants) "
 	if idOk {
 		sql += "AND \"id\" = @id "
 	}
@@ -453,7 +457,7 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 		sql += "AND \"urn\" = @urn "
 	}
 	sql += timeRelSql + " "
-	sql += "GROUP BY e;"
+	sql += "GROUP BY e ORDER BY e;"
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -541,8 +545,8 @@ func noRowsFoundError() messagecollector.QueryResult {
 	}
 }
 
-func errorResult(msg string) messagecollector.QueryResult {
+func errorResult(msg string, args ...any) messagecollector.QueryResult {
 	return messagecollector.QueryResult{
-		Error: fmt.Errorf(msg),
+		Error: fmt.Errorf(msg, args...),
 	}
 }
