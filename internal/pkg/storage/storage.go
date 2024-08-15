@@ -23,8 +23,10 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
 			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)
 			ON CONFLICT (time, id) DO UPDATE 
-			SET v = COALESCE(EXCLUDED.v, events_measurements.v), vs = COALESCE(EXCLUDED.vs, events_measurements.vs), vb = COALESCE(EXCLUDED.vb, events_measurements.vb);
-			`
+			SET v = COALESCE(EXCLUDED.v, events_measurements.v), 
+			    vs = COALESCE(EXCLUDED.vs, events_measurements.vs), 
+				vb = COALESCE(EXCLUDED.vb, events_measurements.vb),
+				updated_on = CURRENT_TIMESTAMP;`
 
 	args := pgx.NamedArgs{
 		"time":      m.Timestamp.UTC(),
@@ -105,10 +107,12 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			unit 		TEXT NOT NULL DEFAULT '',
 			tenant 		TEXT NOT NULL,
 			created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			updated_on  timestamp with time zone NOT NULL, 
 			trace_id 	TEXT NULL,			
 			UNIQUE ("time", "id"));
 			
 			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS created_on timestamp with time zone NULL DEFAULT CURRENT_TIMESTAMP;
+			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS updated_on timestamp with time zone NULL;
 			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;`
 
 	countHyperTable := `SELECT COUNT(*) n FROM timescaledb_information.hypertables WHERE hypertable_name = 'events_measurements';`
