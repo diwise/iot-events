@@ -113,14 +113,15 @@ type Measurement struct {
 }
 
 type MeasurementResult struct {
-	ID       string   `json:"id"`
-	DeviceID string   `json:"deviceID"`
-	Name     string   `json:"name"`
-	Urn      string   `json:"urn"`
-	Lat      *float64 `json:"lat,omitempty"`
-	Lon      *float64 `json:"lon,omitempty"`
-	Values   []Value  `json:"values"`
-	Tenant   string   `json:"tenant"`
+	ID           string    `json:"id,omitempty"`
+	DeviceID     string    `json:"deviceID,omitempty"`
+	Name         string    `json:"name,omitempty"`
+	Urn          string    `json:"urn,omitempty"`
+	Lat          *float64   `json:"lat,omitempty"`
+	Lon          *float64   `json:"lon,omitempty"`
+	LastObserved *time.Time `json:"lastObserved,omitempty"`
+	Values       []Value    `json:"values"`
+	Tenant       string     `json:"tenant,omitempty"`
 }
 
 type Value struct {
@@ -132,31 +133,8 @@ type Value struct {
 	Unit        string    `json:"unit,omitempty"`
 	Timestamp   time.Time `json:"timestamp"`
 	Link        *string   `json:"link,omitempty"`
-}
-
-type DeviceResult struct {
-	DeviceID     string            `json:"deviceID"`
-	LastObserved time.Time         `json:"lastObserved"`
-	TotalCount   *uint64           `json:"totalCount,omitempty"`
-	Measurements []MeasurementType `json:"measurements"`
-}
-
-type ObjectResult struct {
-	DeviceID     string    `json:"deviceID"`
-	Urn          *string   `json:"urn,omitempty"`
-	LastObserved time.Time `json:"lastObserved"`
-	Lat          *float64  `json:"lat,omitempty"`
-	Lon          *float64  `json:"lon,omitempty"`
-	TotalCount   *uint64   `json:"totalCount,omitempty"`
-	Measurements []Value   `json:"measurements"`
-}
-
-type MeasurementType struct {
-	ID           string    `json:"id"`
-	Urn          string    `json:"urn"`
-	Count        uint64    `json:"count"`
-	LastObserved time.Time `json:"lastObserved"`
-	Link         string    `json:"link"`
+	Sum         *float64  `json:"sum,omitempty"`
+	Urn         *string   `json:"urn,omitempty"`
 }
 
 type AggrResult struct {
@@ -164,9 +142,4 @@ type AggrResult struct {
 	Total   *float64 `json:"sum,omitempty"`
 	Minimum *float64 `json:"min,omitempty"`
 	Maximum *float64 `json:"max,omitempty"`
-}
-
-type RateResult struct {
-	Timestamp time.Time `json:"timestamp"`
-	Count     uint64    `json:"count"`
 }

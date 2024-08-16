@@ -107,7 +107,7 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			unit 		TEXT NOT NULL DEFAULT '',
 			tenant 		TEXT NOT NULL,
 			created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-			updated_on  timestamp with time zone NOT NULL, 
+			updated_on  timestamp with time zone NULL, 
 			trace_id 	TEXT NULL,			
 			UNIQUE ("time", "id"));
 			

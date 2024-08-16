@@ -48,11 +48,11 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 	var vb *bool
 	lastObserved := time.Unix(0, 0).UTC()
 
-	or := messagecollector.ObjectResult{
+	or := messagecollector.MeasurementResult{
 		DeviceID:     deviceID,
-		Urn:          &urn,
-		LastObserved: lastObserved,
-		Measurements: make([]messagecollector.Value, 0),
+		Urn:          urn,
+		LastObserved: &lastObserved,
+		Values:       make([]messagecollector.Value, 0),
 	}
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &location, &n, &v, &vs, &vb, &unit, &tenant}, func() error {
@@ -64,8 +64,9 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 			or.Lon = &location.P.X
 		}
 
-		if ts.After(or.LastObserved) {
-			or.LastObserved = ts.UTC()
+		if ts.After(*or.LastObserved) {
+			utc := ts.UTC()
+			or.LastObserved = &utc
 		}
 
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
@@ -83,7 +84,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 			Name:        &name,
 		}
 
-		or.Measurements = append(or.Measurements, value)
+		or.Values = append(or.Values, value)
 
 		return nil
 	})
@@ -96,10 +97,10 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 
 	return messagecollector.QueryResult{
 		Data:       or,
-		Count:      uint64(len(or.Measurements)),
+		Count:      uint64(len(or.Values)),
 		Offset:     0,
-		Limit:      uint64(len(or.Measurements)),
-		TotalCount: uint64(len(or.Measurements)),
+		Limit:      uint64(len(or.Values)),
+		TotalCount: uint64(len(or.Values)),
 		Error:      nil,
 	}
 }
@@ -133,32 +134,35 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 	var id, urn string
 	var ts time.Time
 	var n uint64
-	var total uint64 = 0
 	lastObserved := time.Unix(0, 0).UTC()
 
-	dr := messagecollector.DeviceResult{
+	dr := messagecollector.MeasurementResult{
 		DeviceID:     deviceID,
-		LastObserved: lastObserved,
-		Measurements: make([]messagecollector.MeasurementType, 0),
+		LastObserved: &lastObserved,
+		Values:       make([]messagecollector.Value, 0),
 	}
 
 	_, err = pgx.ForEachRow(rows, []any{&id, &urn, &ts, &n}, func() error {
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
 
-		t := messagecollector.MeasurementType{
-			ID:           id,
-			Urn:          urn,
-			Count:        n,
-			LastObserved: ts.UTC(),
-			Link:         u,
-		}
-		dr.Measurements = append(dr.Measurements, t)
+		_id := id
+		_urn := urn
+		_ts := ts.UTC()
+		_count := float64(n)
 
-		if ts.After(dr.LastObserved) {
-			dr.LastObserved = ts
+		t := messagecollector.Value{
+			ID:        &_id,
+			Urn:       &_urn,
+			Sum:       &_count,
+			Timestamp: _ts,
+			Link:      &u,
+		}
+		dr.Values = append(dr.Values, t)
+
+		if ts.After(*dr.LastObserved) {
+			dr.LastObserved = &_ts
 		}
 
-		total += n
 		return nil
 	})
 	if err != nil {
@@ -168,14 +172,12 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 		return errorResult(err.Error())
 	}
 
-	dr.TotalCount = &total
-
 	return messagecollector.QueryResult{
 		Data:       dr,
-		Count:      uint64(len(dr.Measurements)),
+		Count:      uint64(len(dr.Values)),
 		Offset:     0,
-		Limit:      uint64(len(dr.Measurements)),
-		TotalCount: uint64(len(dr.Measurements)),
+		Limit:      uint64(len(dr.Values)),
+		TotalCount: uint64(len(dr.Values)),
 		Error:      nil,
 	}
 }
@@ -468,14 +470,15 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 	var ts time.Time
 	var n uint64
 
-	result := make([]messagecollector.RateResult, 0)
+	values := make([]messagecollector.Value, 0)
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &n}, func() error {
-		value := messagecollector.RateResult{
+		sum := float64(n)
+		value := messagecollector.Value{
 			Timestamp: ts.UTC(),
-			Count:     n,
+			Sum:       &sum,
 		}
-		result = append(result, value)
+		values = append(values, value)
 		return nil
 	})
 	if err != nil {
@@ -485,12 +488,16 @@ func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, 
 		return errorResult(err.Error())
 	}
 
+	result := messagecollector.MeasurementResult{
+		Values: values,
+	}
+
 	return messagecollector.QueryResult{
 		Data:       result,
-		Count:      uint64(len(result)),
+		Count:      uint64(len(result.Values)),
 		Offset:     0,
-		Limit:      uint64(len(result)),
-		TotalCount: uint64(len(result)),
+		Limit:      uint64(len(result.Values)),
+		TotalCount: uint64(len(result.Values)),
 		Error:      nil,
 	}
 }
