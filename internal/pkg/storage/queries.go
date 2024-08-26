@@ -16,6 +16,328 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
+
+
+func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	_, ok := q.GetString("aggrMethods")
+	if ok {
+		return s.aggrQuery(ctx, q, tenants)
+	}
+
+	id, ok := q.GetString("id")
+	if !ok {
+		return errorResult("query contains no ID")
+	}
+
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	sql := `	
+		SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count 
+		FROM events_measurements		
+	`
+
+	where := `
+		WHERE "id" = @id 
+		  AND tenant=any(@tenants)
+	`
+	orderAsc := `
+		ORDER BY "time" ASC		
+	`
+	orderDesc := `
+		ORDER BY "time" DESC		
+	`
+	offsetLimit := `
+		OFFSET @offset LIMIT @limit;
+	`
+
+	order := orderAsc
+
+	lastN := q.GetBool("lastN")
+	if lastN {
+		order = orderDesc
+	}
+
+	sql = sql + where + timeRelSql + order + offsetLimit
+
+	offset := q.GetUint64OrDefault("offset", 0)
+	limit := q.GetUint64OrDefault("limit", 10)
+
+	args := pgx.NamedArgs{
+		"id":        id,
+		"offset":    offset,
+		"limit":     limit,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	var ts time.Time
+	var device_id, urn, n, vs, unit, tenant string
+	var location pgtype.Point
+	var total_count int64
+	var v *float64
+	var vb *bool
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult(err.Error())
+	}
+
+	m := messagecollector.MeasurementResult{
+		ID:     id,
+		Values: make([]messagecollector.Value, 0),
+	}
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &total_count}, func() error {
+		value := messagecollector.Value{
+			Timestamp:   ts.UTC(),
+			BoolValue:   vb,
+			StringValue: vs,
+			Unit:        unit,
+			Value:       v,
+		}
+		m.Values = append(m.Values, value)
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
+		return errorResult(err.Error())
+	}
+
+	reverse := q.GetBool("reverse")
+	if reverse {
+		slices.Reverse(m.Values)
+	}
+
+	m.DeviceID = device_id
+	if location.P.Y > 0.0 && location.P.X > 0.0 {
+		m.Lat = &location.P.Y
+		m.Lon = &location.P.X
+	}
+	m.Name = n
+	m.Tenant = tenant
+	m.Urn = urn
+
+	return messagecollector.QueryResult{
+		Data:       m,
+		Count:      uint64(len(m.Values)),
+		Offset:     offset,
+		Limit:      limit,
+		TotalCount: uint64(total_count),
+		Error:      nil,
+	}
+}
+
+func (s Storage) aggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	aggrMethods, ok := q.GetString("aggrMethods")
+	if !ok {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	methods := strings.Split(aggrMethods, ",")
+	if len(methods) == 0 {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	if slices.Contains(methods, "rate") {
+		return s.rateQuery(ctx, q, tenants)
+	}
+
+	for _, m := range methods {
+		if !slices.Contains([]string{"avg", "min", "max", "sum", "rate"}, m) {
+			return errorResult(fmt.Sprintf("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m))
+		}
+	}
+
+	id, ok := q.GetString("id")
+	if !ok {
+		return errorResult("query contains no ID")
+	}
+
+	sql := `	
+		SELECT
+		  AVG(v) AS average,
+		  SUM(v) AS total,
+		  MIN(v) AS minimum,
+		  MAX(v) AS maximum 
+		FROM events_measurements		
+	`
+
+	where := `
+		WHERE "id" = @id 
+		  AND v IS NOT NULL 
+		  AND tenant=any(@tenants)
+	`
+
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	args := pgx.NamedArgs{
+		"id":        id,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
+	}
+
+	sql = sql + where + timeRelSql
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult(err.Error())
+	}
+
+	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
+		return errorResult(err.Error())
+	}
+
+	aggrResult := messagecollector.AggrResult{}
+	if slices.Contains(methods, "avg") {
+		aggrResult.Average = aggr.Average
+	}
+	if slices.Contains(methods, "min") {
+		aggrResult.Minimum = aggr.Minimum
+	}
+	if slices.Contains(methods, "max") {
+		aggrResult.Maximum = aggr.Maximum
+	}
+	if slices.Contains(methods, "sum") {
+		aggrResult.Total = aggr.Total
+	}
+
+	return messagecollector.QueryResult{
+		Data:       aggrResult,
+		Count:      1,
+		Offset:     0,
+		Limit:      1,
+		TotalCount: 1,
+		Error:      nil,
+	}
+}
+
+func (s Storage) rateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	id, idOk := q.GetString("id")
+	device_id, deviceIdOk := q.GetString("device_id")
+	urn, urnOk := q.GetString("urn")
+
+	aggrMethods, ok := q.GetString("aggrMethods")
+	if !ok {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	methods := strings.Split(aggrMethods, ",")
+	if len(methods) == 0 {
+		return errorResult("query contains no aggregate function parameter(s)")
+	}
+
+	if !slices.Contains(methods, "rate") {
+		return errorResult("query contains no rate function")
+	}
+
+	timeUnit, ok := q.GetString("timeUnit")
+	if !ok {
+		return errorResult("query contains no timeUnit parameter")
+	}
+
+	if !slices.Contains([]string{"hour", "day"}, timeUnit) {
+		return errorResult(fmt.Sprintf("invalid timeUnit, should be [hour, day] is %s", timeUnit))
+	}
+
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
+	if err != nil {
+		return errorResult(err.Error())
+	}
+
+	if !idOk && !deviceIdOk && !urnOk {
+		duration := endTimeAt.Sub(timeAt)
+		maxDuration := time.Duration(100 * 24 * time.Hour)
+		if duration > maxDuration {
+			return errorResult("query contains no id, deviceID or URN and duration between timeAt and endTimeAt is too large (%0.f > %0.f hours)", duration.Hours(), maxDuration.Hours())
+		}
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	args := pgx.NamedArgs{
+		"id":        id,
+		"device_id": device_id,
+		"urn":       urn,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
+	}
+
+	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements ", timeUnit)
+	sql += "WHERE tenant=any(@tenants) "
+	if idOk {
+		sql += "AND \"id\" = @id "
+	}
+	if deviceIdOk {
+		sql += "AND \"device_id\" = @device_id "
+	}
+	if urnOk {
+		sql += "AND \"urn\" = @urn "
+	}
+	sql += timeRelSql + " "
+	sql += "GROUP BY e ORDER BY e;"
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult(err.Error())
+	}
+
+	var ts time.Time
+	var n uint64
+
+	values := make([]messagecollector.Value, 0)
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &n}, func() error {
+		sum := float64(n)
+		value := messagecollector.Value{
+			Timestamp: ts.UTC(),
+			Sum:       &sum,
+		}
+		values = append(values, value)
+		return nil
+	})
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return noRowsFoundError()
+		}
+		return errorResult(err.Error())
+	}
+
+	result := messagecollector.MeasurementResult{
+		Values: values,
+	}
+
+	return messagecollector.QueryResult{
+		Data:       result,
+		Count:      uint64(len(result.Values)),
+		Offset:     0,
+		Limit:      uint64(len(result.Values)),
+		TotalCount: uint64(len(result.Values)),
+		Error:      nil,
+	}
+}
+
 func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) messagecollector.QueryResult {
 	log := logging.GetFromContext(ctx)
 
@@ -178,326 +500,6 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 		Offset:     0,
 		Limit:      uint64(len(dr.Values)),
 		TotalCount: uint64(len(dr.Values)),
-		Error:      nil,
-	}
-}
-
-func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	_, ok := q.GetString("aggrMethods")
-	if ok {
-		return s.AggrQuery(ctx, q, tenants)
-	}
-
-	id, ok := q.GetString("id")
-	if !ok {
-		return errorResult("query contains no ID")
-	}
-
-	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
-	if err != nil {
-		return errorResult(err.Error())
-	}
-
-	sql := `	
-		SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count 
-		FROM events_measurements		
-	`
-
-	where := `
-		WHERE "id" = @id 
-		  AND tenant=any(@tenants)
-	`
-	orderAsc := `
-		ORDER BY "time" ASC		
-	`
-	orderDesc := `
-		ORDER BY "time" DESC		
-	`
-	offsetLimit := `
-		OFFSET @offset LIMIT @limit;
-	`
-
-	order := orderAsc
-
-	lastN := q.GetBool("lastN")
-	if lastN {
-		order = orderDesc
-	}
-
-	sql = sql + where + timeRelSql + order + offsetLimit
-
-	offset := q.GetUint64OrDefault("offset", 0)
-	limit := q.GetUint64OrDefault("limit", 10)
-
-	args := pgx.NamedArgs{
-		"id":        id,
-		"offset":    offset,
-		"limit":     limit,
-		"tenants":   tenants,
-		"timeAt":    timeAt,
-		"endTimeAt": endTimeAt,
-	}
-
-	log := logging.GetFromContext(ctx)
-
-	var ts time.Time
-	var device_id, urn, n, vs, unit, tenant string
-	var location pgtype.Point
-	var total_count int64
-	var v *float64
-	var vb *bool
-
-	rows, err := s.conn.Query(ctx, sql, args)
-	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
-	}
-
-	m := messagecollector.MeasurementResult{
-		ID:     id,
-		Values: make([]messagecollector.Value, 0),
-	}
-
-	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &total_count}, func() error {
-		value := messagecollector.Value{
-			Timestamp:   ts.UTC(),
-			BoolValue:   vb,
-			StringValue: vs,
-			Unit:        unit,
-			Value:       v,
-		}
-		m.Values = append(m.Values, value)
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noRowsFoundError()
-		}
-		return errorResult(err.Error())
-	}
-
-	reverse := q.GetBool("reverse")
-	if reverse {
-		slices.Reverse(m.Values)
-	}
-
-	m.DeviceID = device_id
-	if location.P.Y > 0.0 && location.P.X > 0.0 {
-		m.Lat = &location.P.Y
-		m.Lon = &location.P.X
-	}
-	m.Name = n
-	m.Tenant = tenant
-	m.Urn = urn
-
-	return messagecollector.QueryResult{
-		Data:       m,
-		Count:      uint64(len(m.Values)),
-		Offset:     offset,
-		Limit:      limit,
-		TotalCount: uint64(total_count),
-		Error:      nil,
-	}
-}
-
-func (s Storage) AggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	aggrMethods, ok := q.GetString("aggrMethods")
-	if !ok {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	methods := strings.Split(aggrMethods, ",")
-	if len(methods) == 0 {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	for _, m := range methods {
-		if !slices.Contains([]string{"avg", "min", "max", "sum", "rate"}, m) {
-			return errorResult(fmt.Sprintf("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m))
-		}
-	}
-
-	if slices.Contains(methods, "rate") {
-		return s.RateQuery(ctx, q, tenants)
-	}
-
-	id, ok := q.GetString("id")
-	if !ok {
-		return errorResult("query contains no ID")
-	}
-
-	sql := `	
-		SELECT
-		  AVG(v) AS average,
-		  SUM(v) AS total,
-		  MIN(v) AS minimum,
-		  MAX(v) AS maximum 
-		FROM events_measurements		
-	`
-
-	where := `
-		WHERE "id" = @id 
-		  AND v IS NOT NULL 
-		  AND tenant=any(@tenants)
-	`
-
-	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
-	if err != nil {
-		return errorResult(err.Error())
-	}
-
-	log := logging.GetFromContext(ctx)
-
-	args := pgx.NamedArgs{
-		"id":        id,
-		"tenants":   tenants,
-		"timeAt":    timeAt,
-		"endTimeAt": endTimeAt,
-	}
-
-	sql = sql + where + timeRelSql
-
-	rows, err := s.conn.Query(ctx, sql, args)
-	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
-	}
-
-	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noRowsFoundError()
-		}
-		return errorResult(err.Error())
-	}
-
-	aggrResult := messagecollector.AggrResult{}
-	if slices.Contains(methods, "avg") {
-		aggrResult.Average = aggr.Average
-	}
-	if slices.Contains(methods, "min") {
-		aggrResult.Minimum = aggr.Minimum
-	}
-	if slices.Contains(methods, "max") {
-		aggrResult.Maximum = aggr.Maximum
-	}
-	if slices.Contains(methods, "sum") {
-		aggrResult.Total = aggr.Total
-	}
-
-	return messagecollector.QueryResult{
-		Data:       aggrResult,
-		Count:      1,
-		Offset:     0,
-		Limit:      1,
-		TotalCount: 1,
-		Error:      nil,
-	}
-}
-
-func (s Storage) RateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	id, idOk := q.GetString("id")
-	device_id, deviceIdOk := q.GetString("device_id")
-	urn, urnOk := q.GetString("urn")
-
-	aggrMethods, ok := q.GetString("aggrMethods")
-	if !ok {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	methods := strings.Split(aggrMethods, ",")
-	if len(methods) == 0 {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	if !slices.Contains(methods, "rate") {
-		return errorResult("query contains no rate function")
-	}
-
-	timeUnit, ok := q.GetString("timeUnit")
-	if !ok {
-		return errorResult("query contains no timeUnit parameter")
-	}
-
-	if !slices.Contains([]string{"hour", "day"}, timeUnit) {
-		return errorResult(fmt.Sprintf("invalid timeUnit, should be [hour, day] is %s", timeUnit))
-	}
-
-	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
-	if err != nil {
-		return errorResult(err.Error())
-	}
-
-	if !idOk && !deviceIdOk && !urnOk {
-		duration := endTimeAt.Sub(timeAt)
-		maxDuration := time.Duration(100 * 24 * time.Hour)
-		if duration > maxDuration {
-			return errorResult("query contains no id, deviceID or URN and duration between timeAt and endTimeAt is too large (%0.f > %0.f hours)", duration.Hours(), maxDuration.Hours())
-		}
-	}
-
-	log := logging.GetFromContext(ctx)
-
-	args := pgx.NamedArgs{
-		"id":        id,
-		"device_id": device_id,
-		"urn":       urn,
-		"tenants":   tenants,
-		"timeAt":    timeAt,
-		"endTimeAt": endTimeAt,
-	}
-
-	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements ", timeUnit)
-	sql += "WHERE tenant=any(@tenants) "
-	if idOk {
-		sql += "AND \"id\" = @id "
-	}
-	if deviceIdOk {
-		sql += "AND \"device_id\" = @device_id "
-	}
-	if urnOk {
-		sql += "AND \"urn\" = @urn "
-	}
-	sql += timeRelSql + " "
-	sql += "GROUP BY e ORDER BY e;"
-
-	rows, err := s.conn.Query(ctx, sql, args)
-	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
-	}
-
-	var ts time.Time
-	var n uint64
-
-	values := make([]messagecollector.Value, 0)
-
-	_, err = pgx.ForEachRow(rows, []any{&ts, &n}, func() error {
-		sum := float64(n)
-		value := messagecollector.Value{
-			Timestamp: ts.UTC(),
-			Sum:       &sum,
-		}
-		values = append(values, value)
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noRowsFoundError()
-		}
-		return errorResult(err.Error())
-	}
-
-	result := messagecollector.MeasurementResult{
-		Values: values,
-	}
-
-	return messagecollector.QueryResult{
-		Data:       result,
-		Count:      uint64(len(result.Values)),
-		Offset:     0,
-		Limit:      uint64(len(result.Values)),
-		TotalCount: uint64(len(result.Values)),
 		Error:      nil,
 	}
 }
