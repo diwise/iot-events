@@ -16,8 +16,6 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-
-
 func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 	_, ok := q.GetString("aggrMethods")
 	if ok {
@@ -437,7 +435,9 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 	sql := `
 		SELECT "id", urn, MAX("time"), count(*) as "n"
 		FROM events_measurements
-		WHERE device_id = @device_id AND tenant=any(@tenants)
+		WHERE device_id = @device_id 
+		  AND tenant=any(@tenants)
+		  AND (v IS NOT NULL OR vb IS NOT NULL)
 		GROUP BY "id", urn
 		ORDER BY "id";
 	`
