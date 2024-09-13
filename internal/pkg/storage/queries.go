@@ -433,13 +433,16 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 	log := logging.GetFromContext(ctx)
 
 	sql := `
-		SELECT "id", urn, MAX("time"), count(*) as "n"
-		FROM events_measurements
-		WHERE device_id = @device_id 
-		  AND tenant=any(@tenants)
-		  AND (v IS NOT NULL OR vb IS NOT NULL)
-		GROUP BY "id", urn
-		ORDER BY "id";
+		WITH measurements AS (
+			SELECT time, id, urn, v, vb, ROW_NUMBER() OVER (PARTITION BY id ORDER BY time DESC) AS rn
+			FROM events_measurements
+			WHERE device_id = @device_id 
+			  AND (v IS NOT NULL OR vb IS NOT NULL)
+			  AND tenant=any(@tenants)
+		)
+		SELECT time, id, urn, v, vb
+		FROM measurements
+		WHERE rn = 1;	
 	`
 
 	args := pgx.NamedArgs{
@@ -455,7 +458,8 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 
 	var id, urn string
 	var ts time.Time
-	var n uint64
+	var v *float64
+	var vb *bool
 	lastObserved := time.Unix(0, 0).UTC()
 
 	dr := messagecollector.MeasurementResult{
@@ -464,19 +468,21 @@ func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []str
 		Values:       make([]messagecollector.Value, 0),
 	}
 
-	_, err = pgx.ForEachRow(rows, []any{&id, &urn, &ts, &n}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &urn, &v, &vb}, func() error {
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
 
 		_id := id
 		_urn := urn
 		_ts := ts.UTC()
-		_count := float64(n)
+		_v := v
+		_vb := vb
 
 		t := messagecollector.Value{
 			ID:        &_id,
 			Urn:       &_urn,
-			Sum:       &_count,
 			Timestamp: _ts,
+			Value:     _v,
+			BoolValue: _vb,
 			Link:      &u,
 		}
 		dr.Values = append(dr.Values, t)
