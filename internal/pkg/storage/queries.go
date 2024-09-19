@@ -28,6 +28,8 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		return errorResult("query contains no ID")
 	}
 
+	log := logging.GetFromContext(ctx)
+
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
 		return errorResult(err.Error())
@@ -88,9 +90,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		"tenants":   tenants,
 		"timeAt":    timeAt,
 		"endTimeAt": endTimeAt,
-	}
-
-	log := logging.GetFromContext(ctx)
+	}	
 
 	var ts time.Time
 	var device_id, urn, n, vs, unit, tenant string
