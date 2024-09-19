@@ -78,12 +78,12 @@ func (q QueryParams) GetTime(key string) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-func (q QueryParams) GetBool(key string) bool {
+func (q QueryParams) GetBool(key string) (bool,bool) {
 	b, ok := q.GetString(key)
 	if !ok {
-		return false
+		return false, false
 	}
-	return strings.EqualFold(b, "true")
+	return strings.EqualFold(b, "true"), true
 }
 
 func NewMeasurement(ts time.Time, id, deviceID, name, urn, tenant string) Measurement {

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"net/url"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -37,10 +38,27 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		FROM events_measurements		
 	`
 
-	where := `
-		WHERE "id" = @id 
-		  AND tenant=any(@tenants)
-	`
+	where := `WHERE "id" = @id `
+
+	if vb, ok := q.GetBool("vb"); ok {
+		if vb {
+			where += `AND vb IS NOT NULL AND vb=TRUE `
+		} else {
+			where += `AND vb IS NOT NULL AND vb=FALSE `
+		}
+	}
+
+	if v, ok := q.GetString("v"); ok {
+		_, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			v = fmt.Sprintf("=%s", v)
+		}
+
+		where += fmt.Sprintf("AND v IS NOT NULL AND v %s ", v)
+	}
+
+	where += `AND tenant=any(@tenants)`
+
 	orderAsc := `
 		ORDER BY "time" ASC		
 	`
@@ -53,7 +71,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 
 	order := orderAsc
 
-	lastN := q.GetBool("lastN")
+	lastN, _ := q.GetBool("lastN")
 	if lastN {
 		order = orderDesc
 	}
@@ -110,7 +128,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		return errorResult(err.Error())
 	}
 
-	reverse := q.GetBool("reverse")
+	reverse, _ := q.GetBool("reverse")
 	if reverse {
 		slices.Reverse(m.Values)
 	}
