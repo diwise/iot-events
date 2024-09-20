@@ -310,6 +310,23 @@ func (s Storage) rateQuery(ctx context.Context, q messagecollector.QueryParams, 
 	if urnOk {
 		sql += "AND \"urn\" = @urn "
 	}
+	if vb, ok := q.GetBool("vb"); ok {
+		if vb {
+			sql += `AND vb IS NOT NULL AND vb=TRUE `
+		} else {
+			sql += `AND vb IS NOT NULL AND vb=FALSE `
+		}
+	}
+
+	if v, ok := q.GetString("v"); ok {
+		_, err := strconv.ParseFloat(v, 64)
+		if err == nil {
+			v = fmt.Sprintf("=%s", v)
+		}
+
+		sql += fmt.Sprintf("AND v IS NOT NULL AND v %s ", v)
+	}
+
 	sql += timeRelSql + " "
 	sql += "GROUP BY e ORDER BY e;"
 
