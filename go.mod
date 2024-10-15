@@ -1,11 +1,9 @@
 module github.com/diwise/iot-events
 
-go 1.22.0
-
-toolchain go1.22.1
+go 1.23.0
 
 require (
-	github.com/diwise/service-chassis v0.0.0-20240426080527-94892f253835
+	github.com/diwise/service-chassis v0.0.0-20241008182837-dd85d30bd8c3
 	github.com/go-chi/chi/v5 v5.1.0
 	github.com/google/uuid v1.6.0
 	go.opentelemetry.io/otel v1.30.0
