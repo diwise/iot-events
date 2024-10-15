@@ -13,8 +13,8 @@ import (
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
-	"github.com/jackc/pgx/pgtype"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
@@ -90,7 +90,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 		"tenants":   tenants,
 		"timeAt":    timeAt,
 		"endTimeAt": endTimeAt,
-	}	
+	}
 
 	var ts time.Time
 	var device_id, urn, n, vs, unit, tenant string
