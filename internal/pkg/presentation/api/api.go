@@ -10,6 +10,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/http/pprof"
 	"net/url"
 	"regexp"
 	"time"
@@ -59,6 +60,9 @@ func New(ctx context.Context, serviceName string, mediator mediator.Mediator, st
 			r.Get("/measurements/{deviceID}", NewQueryDeviceHandler(storage, log))
 		})
 	})
+
+	r.Get("/debug/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
+	r.Get("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
 
 	KeepAlive(mediator)
 
