@@ -62,6 +62,7 @@ func New(ctx context.Context, serviceName string, mediator mediator.Mediator, st
 	})
 
 	r.Get("/debug/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
+	r.Get("/debug/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
 	r.Get("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
 
 	KeepAlive(mediator)
