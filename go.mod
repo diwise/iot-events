@@ -66,7 +66,7 @@ require (
 
 require (
 	github.com/cloudevents/sdk-go/v2 v2.15.2
-	github.com/diwise/messaging-golang v0.0.0-20241020200342-1ebece8e38aa
+	github.com/diwise/messaging-golang v0.0.0-20241021090331-143508a441a2
 	github.com/diwise/senml v0.0.0-20240402140901-e4008e065e05
 	github.com/jackc/pgx/v5 v5.7.1
 	github.com/matryer/is v1.4.1
