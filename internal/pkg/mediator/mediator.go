@@ -173,23 +173,25 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 		return strings.Join(s, ",")
 	}
 
-	for {
-		select {
-		case <-ctx.Done():
-			m.logger.Debug("Done!")
-			return
-		case s := <-m.register:
-			m.subscribers[s.ID()] = s
-			m.logger.Debug("register new subscriber", "subscriber_id", s.ID(), "tenants", tenants(s.Tenants()), "total", len(m.subscribers))
-		case s := <-m.unregister:
-			delete(m.subscribers, s.ID())
-			m.logger.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", len(m.subscribers))
-		case subscriberCountQueried := <-m.subscount:
-			subscriberCountQueried <- len(m.subscribers)
-		case msg := <-m.inbox:
-			for _, s := range m.subscribers {
-				s.Handle(msg)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				m.logger.Debug("Done!")
+				return
+			case s := <-m.register:
+				m.subscribers[s.ID()] = s
+				m.logger.Debug("register new subscriber", "subscriber_id", s.ID(), "tenants", tenants(s.Tenants()), "total", len(m.subscribers))
+			case s := <-m.unregister:
+				delete(m.subscribers, s.ID())
+				m.logger.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", len(m.subscribers))
+			case subscriberCountQueried := <-m.subscount:
+				subscriberCountQueried <- len(m.subscribers)
+			case msg := <-m.inbox:
+				for _, s := range m.subscribers {
+					s.Handle(msg)
+				}
 			}
 		}
-	}
+	}()
 }

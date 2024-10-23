@@ -26,7 +26,9 @@ type Config struct {
 	Subscribers []Subscriber `yaml:"subscribers"`
 }
 
-func LoadConfiguration(data io.Reader) (*Config, error) {
+func LoadConfiguration(data io.ReadCloser) (*Config, error) {
+	defer data.Close()
+
 	buf, err := io.ReadAll(data)
 	if err != nil {
 		return nil, err
@@ -45,7 +47,6 @@ func LoadConfigurationFromFile(filepath string) *Config {
 	if err != nil {
 		return &Config{}
 	}
-	defer configFile.Close()
 
 	config, err := LoadConfiguration(configFile)
 	if err != nil {

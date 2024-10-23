@@ -16,7 +16,7 @@ type Config struct {
 	sslmode  string
 }
 
-func NewConfig(host, user, password, port, dbname, sslmode string) Config {
+func NewConfig(host, port, dbname, user, password, sslmode string) Config {
 	return Config{
 		host:     host,
 		user:     user,

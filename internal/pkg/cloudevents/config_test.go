@@ -1,6 +1,7 @@
 package cloudevents
 
 import (
+	"io"
 	"strings"
 	"testing"
 
@@ -11,7 +12,7 @@ func TestThatConfigCouldBeRead(t *testing.T) {
 	is := is.New(t)
 
 	r := strings.NewReader(config)
-	cfg, err := LoadConfiguration(r)
+	cfg, err := LoadConfiguration(io.NopCloser(r))
 
 	is.NoErr(err)
 
@@ -26,7 +27,7 @@ func TestThatConfigWithoutTenantCouldBeRead(t *testing.T) {
 	is := is.New(t)
 
 	r := strings.NewReader(configWithoutTenant)
-	cfg, err := LoadConfiguration(r)
+	cfg, err := LoadConfiguration(io.NopCloser(r))
 
 	is.NoErr(err)
 

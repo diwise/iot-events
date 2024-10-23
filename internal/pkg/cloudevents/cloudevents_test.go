@@ -19,7 +19,7 @@ import (
 
 func TestThatCloudEventIsSent(t *testing.T) {
 	is := is.New(t)
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))	
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	ctx := logging.NewContextWithLogger(context.Background(), logger)
 	defer ctx.Done()
 
@@ -34,7 +34,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	defer server.Close()
 
 	r := strings.NewReader(strings.Replace(config, "<ENDPOINT URL>", server.URL, 1))
-	cfg, err := LoadConfiguration(r)
+	cfg, err := LoadConfiguration(io.NopCloser(r))
 	is.NoErr(err)
 
 	m := mediator.New(logger)
@@ -218,7 +218,7 @@ func TestNewWithEmptyConfigFile(t *testing.T) {
 	emptyConfigFile := ""
 	configReader := strings.NewReader(emptyConfigFile)
 
-	cfg, err := LoadConfiguration(configReader)
+	cfg, err := LoadConfiguration(io.NopCloser(configReader))
 	is.NoErr(err)
 
 	New(cfg, &m).Start(context.Background())
