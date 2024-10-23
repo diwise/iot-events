@@ -9,10 +9,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
-	"github.com/google/uuid"
 )
 
 type MeasurementStorer interface {
@@ -169,7 +170,7 @@ func (c *collector) Mailbox() chan mediator.Message {
 }
 
 func (c *collector) Handle(m mediator.Message) bool {
-	if !strings.HasPrefix(m.Type(), "message."){
+	if !strings.HasPrefix(m.Type(), "message.") {
 		return false
 	}
 

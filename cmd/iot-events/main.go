@@ -10,7 +10,7 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/handlers"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/messageCollector"
+	"github.com/diwise/iot-events/internal/pkg/messagecollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
