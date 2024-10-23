@@ -10,7 +10,7 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/handlers"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	"github.com/diwise/iot-events/internal/pkg/messagecollector"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -57,7 +57,7 @@ func main() {
 	ce := cloudevents.New(cloudevents.LoadConfigurationFromFile(cloudeventsConfigFilePath), mediator)
 	ce.Start(ctx)
 
-	mc := messagecollector.NewMessageCollector(mediator, storage)
+	mc := messagecollector.New(mediator, storage)
 	mc.Start(ctx)
 
 	api, err := func() (chi.Router, error) {

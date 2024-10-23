@@ -31,7 +31,7 @@ type MessageCollector struct {
 	s MeasurementStorer
 }
 
-func NewMessageCollector(m mediator.Mediator, s MeasurementStorer) MessageCollector {
+func New(m mediator.Mediator, s MeasurementStorer) MessageCollector {
 	return MessageCollector{
 		m: m,
 		s: s,

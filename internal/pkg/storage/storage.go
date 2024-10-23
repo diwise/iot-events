@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
-	"github.com/diwise/iot-events/internal/pkg/messagecollector"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"

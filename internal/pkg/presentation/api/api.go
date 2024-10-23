@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	"github.com/diwise/iot-events/internal/pkg/messagecollector"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
