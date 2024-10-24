@@ -10,7 +10,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"net/http/pprof"
 	"net/url"
 	"regexp"
 	"time"
@@ -22,55 +21,40 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
-	"github.com/go-chi/chi/v5"
-	"github.com/riandyrn/otelchi"
-	"github.com/rs/cors"
 	"go.opentelemetry.io/otel"
 )
 
 var tracer = otel.Tracer("iot-events/api")
 
-func New(ctx context.Context, serviceName string, mediator mediator.Mediator, storage storage.Storage, policies io.Reader) (chi.Router, error) {
+func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.ServeMux, mediator mediator.Mediator, storage storage.Storage, policies io.Reader) error {
 	log := logging.GetFromContext(ctx)
 
-	r := chi.NewRouter()
-
-	r.Use(cors.New(cors.Options{
-		AllowedOrigins:   []string{"*"},
-		AllowCredentials: true,
-		Debug:            false,
-	}).Handler)
-
-	r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
-
-	r.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-	})
+	//r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
 
 	authenticator, err := auth.NewAuthenticator(ctx, policies)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create api authenticator: %w", err)
+		return fmt.Errorf("failed to create api authenticator: %w", err)
 	}
 
-	r.Route("/api/v0", func(r chi.Router) {
-		r.Group(func(r chi.Router) {
-			r.Use(authenticator)
-			r.Get("/events", EventSource(mediator, log))
-			r.Get("/measurements", NewQueryMeasurementsHandler(storage, log))
-			r.Get("/measurements/{deviceID}", NewQueryDeviceHandler(storage, log))
-		})
-	})
+	const apiPrefix string = "/api/v0"
 
-	r.Get("/debug/pprof/allocs", pprof.Handler("allocs").ServeHTTP)
-	r.Get("/debug/pprof/goroutine", pprof.Handler("goroutine").ServeHTTP)
-	r.Get("/debug/pprof/heap", pprof.Handler("heap").ServeHTTP)
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /events", EventSource(mediator, log))
+	mux.HandleFunc("GET /measurements", NewQueryMeasurementsHandler(storage, log))
+	mux.HandleFunc("GET /measurements/{deviceID}", NewQueryDeviceHandler(storage, log))
 
-	KeepAlive(mediator)
+	routeGroup := http.StripPrefix(apiPrefix, mux)
+	rootMux.Handle("GET "+apiPrefix+"/", authenticator(routeGroup))
 
-	return r, nil
+	KeepAlive(ctx, mediator)
+
+	return nil
 }
 
 func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
+	pattern := `^urn:oma:lwm2m:ext:\d+$`
+	urnPatternRegex := regexp.MustCompile(pattern)
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		defer r.Body.Close()
@@ -81,7 +65,7 @@ func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Lo
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
-		deviceID := chi.URLParam(r, "deviceID")
+		deviceID := r.PathValue("deviceID")
 
 		if deviceID == "" {
 			logger.Error("invalid url parameter", "err", err.Error())
@@ -90,9 +74,7 @@ func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Lo
 		}
 
 		validateURN := func(urn string) bool {
-			pattern := `^urn:oma:lwm2m:ext:\d+$`
-			re := regexp.MustCompile(pattern)
-			return re.MatchString(urn)
+			return urnPatternRegex.MatchString(urn)
 		}
 
 		var result messagecollector.QueryResult
@@ -235,15 +217,20 @@ func EventSource(m mediator.Mediator, log *slog.Logger) http.HandlerFunc {
 	}
 }
 
-func KeepAlive(m mediator.Mediator) {
-	ctx := context.Background()
+func KeepAlive(ctx context.Context, m mediator.Mediator) {
 
 	msg := mediator.NewMessage(ctx, "", "keep-alive", "default", nil)
 
 	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+
 		for {
-			time.Sleep(10 * time.Second)
-			m.Publish(ctx, msg)
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				m.Publish(ctx, msg)
+			}
 		}
 	}()
 }

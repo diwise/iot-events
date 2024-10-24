@@ -13,11 +13,16 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type Storage struct {
+type Storage interface {
+	messagecollector.MeasurementRetriever
+	messagecollector.MeasurementStorer
+}
+
+type storageImpl struct {
 	conn *pgxpool.Pool
 }
 
-func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error {
+func (s storageImpl) Save(ctx context.Context, m messagecollector.Measurement) error {
 	log := logging.GetFromContext(ctx)
 
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
@@ -65,15 +70,15 @@ func (s Storage) Save(ctx context.Context, m messagecollector.Measurement) error
 func New(ctx context.Context, config Config) (Storage, error) {
 	pool, err := connect(ctx, config)
 	if err != nil {
-		return Storage{}, err
+		return nil, err
 	}
 
 	err = initialize(ctx, pool)
 	if err != nil {
-		return Storage{}, err
+		return nil, err
 	}
 
-	return Storage{
+	return storageImpl{
 		conn: pool,
 	}, nil
 }

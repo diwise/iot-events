@@ -18,7 +18,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 	_, ok := q.GetString("aggrMethods")
 	if ok {
 		return s.aggrQuery(ctx, q, tenants)
@@ -153,7 +153,7 @@ func (s Storage) Query(ctx context.Context, q messagecollector.QueryParams, tena
 	}
 }
 
-func (s Storage) aggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 	aggrMethods, ok := q.GetString("aggrMethods")
 	if !ok {
 		return errorResult("query contains no aggregate function parameter(s)")
@@ -248,7 +248,7 @@ func (s Storage) aggrQuery(ctx context.Context, q messagecollector.QueryParams, 
 	}
 }
 
-func (s Storage) rateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 	id, idOk := q.GetString("id")
 	device_id, deviceIdOk := q.GetString("device_id")
 	urn, urnOk := q.GetString("urn")
@@ -372,7 +372,7 @@ func (s Storage) rateQuery(ctx context.Context, q messagecollector.QueryParams, 
 	}
 }
 
-func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) messagecollector.QueryResult {
 	log := logging.GetFromContext(ctx)
 
 	sql := `
@@ -461,7 +461,7 @@ func (s Storage) QueryObject(ctx context.Context, deviceID, urn string, tenants 
 	}
 }
 
-func (s Storage) QueryDevice(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
 	if deviceID == "" {
 		return errorResult("query contains no deviceID")
 	}
