@@ -50,7 +50,7 @@ func main() {
 	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
 
 	serviceVersion := buildinfo.SourceVersion()
-	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion)
+	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
 	messenger, err := messaging.Initialize(
@@ -62,7 +62,7 @@ func main() {
 		flags[dbHost], flags[dbPort], flags[dbName],
 		flags[dbUser], flags[dbPassword], flags[dbSSLMode]),
 	)
-	exitIf(err, logger, "failed to connect to storage: %s", err.Error())
+	exitIf(err, logger, "failed to connect to storage")
 
 	cloudEventsConfig, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
@@ -94,11 +94,6 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 	cfg.ce = cloudevents.New(cecfg, cfg.mediator)
 	cfg.mc = messagecollector.New(cfg.mediator, cfg.storage)
 
-	cfg.messenger.RegisterTopicMessageHandler(
-		flags[messengerTopic],
-		handlers.NewTopicMessageHandler(cfg.messenger, cfg.mediator),
-	)
-
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
 		"timescale": func(context.Context) (string, error) { return "ok", nil },
@@ -120,6 +115,11 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 			svcCfg.ce.Start(ctx)
 			svcCfg.mc.Start(ctx)
 			svcCfg.messenger.Start()
+
+			cfg.messenger.RegisterTopicMessageHandler(
+				flags[messengerTopic],
+				handlers.NewTopicMessageHandler(cfg.messenger, cfg.mediator),
+			)
 
 			return nil
 		}),
