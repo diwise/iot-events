@@ -78,7 +78,7 @@ func (q QueryParams) GetTime(key string) (time.Time, bool) {
 	return t.UTC(), true
 }
 
-func (q QueryParams) GetBool(key string) (bool,bool) {
+func (q QueryParams) GetBool(key string) (bool, bool) {
 	b, ok := q.GetString(key)
 	if !ok {
 		return false, false
@@ -113,10 +113,10 @@ type Measurement struct {
 }
 
 type MeasurementResult struct {
-	ID           string    `json:"id,omitempty"`
-	DeviceID     string    `json:"deviceID,omitempty"`
-	Name         string    `json:"name,omitempty"`
-	Urn          string    `json:"urn,omitempty"`
+	ID           string     `json:"id,omitempty"`
+	DeviceID     string     `json:"deviceID,omitempty"`
+	Name         string     `json:"name,omitempty"`
+	Urn          string     `json:"urn,omitempty"`
 	Lat          *float64   `json:"lat,omitempty"`
 	Lon          *float64   `json:"lon,omitempty"`
 	LastObserved *time.Time `json:"lastObserved,omitempty"`

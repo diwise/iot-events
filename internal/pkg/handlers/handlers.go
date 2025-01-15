@@ -16,7 +16,7 @@ import (
 func NewTopicMessageHandler(messenger messaging.MsgContext, m mediator.Mediator) messaging.TopicMessageHandler {
 	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) {
 		messageID := uuid.New().String()
-		
+
 		ctx = logging.NewContextWithLogger(ctx, logger, slog.String("message_id", messageID), slog.String("topic", d.TopicName()), slog.String("message_type", d.ContentType()))
 
 		msg := struct {
