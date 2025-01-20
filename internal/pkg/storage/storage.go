@@ -120,8 +120,7 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS updated_on timestamp with time zone NULL;
 			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;
 			
-			CREATE INDEX IF NOT EXISTS idx_events_measurements_id_ts_t ON events_measurements ("id", "time", "tenant"); 
-			CREATE INDEX IF NOT EXISTS idx_events_measurements_did_u_t ON events_measurements ("device_id", "urn", "tenant"); 
+			CREATE INDEX IF NOT EXISTS idx_measurements_filters ON events_measurements (device_id, tenant, id, time DESC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
 			`
 
 	countHyperTable := `SELECT COUNT(*) n FROM timescaledb_information.hypertables WHERE hypertable_name = 'events_measurements';`

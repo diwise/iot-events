@@ -179,20 +179,27 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("query contains no ID")
 	}
 
-	sql := `	
-		SELECT
-		  AVG(v) AS average,
-		  SUM(v) AS total,
-		  MIN(v) AS minimum,
-		  MAX(v) AS maximum 
-		FROM events_measurements		
-	`
+	avgSql := "0 as average,"
+	sumSql := "0 as sum,"
+	minSql := "0 as min,"
+	maxSql := "0 as max,"
 
-	where := `
-		WHERE "id" = @id 
-		  AND v IS NOT NULL 
-		  AND tenant=any(@tenants)
-	`
+	if slices.Contains(methods, "avg") {
+		avgSql = `AVG(v) AS average,`
+	}
+	if slices.Contains(methods, "min") {
+		minSql = `MIN(v) AS minimum,`
+	}
+	if slices.Contains(methods, "max") {
+		maxSql = `MAX(v) AS maximum,`
+	}
+	if slices.Contains(methods, "sum") {
+		sumSql = `SUM(v) AS total,`
+	}
+
+	sql := "SELECT " + avgSql + sumSql + minSql + maxSql
+	sql = strings.TrimSuffix(sql, ",")
+	sql += " FROM events_measurements WHERE \"id\" = @id AND v IS NOT NULL AND tenant=any(@tenants) "
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
@@ -208,7 +215,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		"endTimeAt": endTimeAt,
 	}
 
-	sql = sql + where + timeRelSql
+	sql = sql + timeRelSql
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -468,18 +475,28 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 
 	log := logging.GetFromContext(ctx)
 
-	sql := `
-		WITH measurements AS (
-			SELECT time, id, urn, v, vb, ROW_NUMBER() OVER (PARTITION BY id ORDER BY time DESC) AS rn
-			FROM events_measurements
+	/*
+		sql := `
+			WITH measurements AS (
+				SELECT time, id, urn, v, vb, ROW_NUMBER() OVER (PARTITION BY id ORDER BY time DESC) AS rn
+				FROM events_measurements
+				WHERE device_id = @device_id
+				  AND (v IS NOT NULL OR vb IS NOT NULL)
+				  AND tenant=any(@tenants)
+			)
+			SELECT time, id, urn, v, vb
+			FROM measurements
+			WHERE rn = 1;
+		`
+	*/
+
+	sql := `SELECT DISTINCT ON (id) time, id, urn, v, vb 
+			FROM events_measurements 
 			WHERE device_id = @device_id 
-			  AND (v IS NOT NULL OR vb IS NOT NULL)
-			  AND tenant=any(@tenants)
-		)
-		SELECT time, id, urn, v, vb
-		FROM measurements
-		WHERE rn = 1;	
-	`
+			  AND (v IS NOT NULL OR vb IS NOT NULL) 
+			  AND tenant=any(@tenants) 
+			  AND time >= NOW() - INTERVAL '14 day' AND time <= NOW()
+			ORDER BY id, time DESC;`
 
 	args := pgx.NamedArgs{
 		"device_id": deviceID,
