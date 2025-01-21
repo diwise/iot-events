@@ -106,7 +106,14 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	var v *float64
 	var vb *bool
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		log.Debug("could not acquire connection from pool", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
@@ -118,7 +125,13 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		Values: make([]messagecollector.Value, 0),
 	}
 
-	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant}, func() error {
+	for rows.Next() {
+		err = rows.Scan(&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant)
+		if err != nil {
+			log.Debug("could not scan row", slog.String("sql", sql), slog.Any("args", args))
+			return errorResult("%s", err.Error())
+		}
+
 		value := messagecollector.Value{
 			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
@@ -126,14 +139,8 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 			Unit:        unit,
 			Value:       v,
 		}
+
 		m.Values = append(m.Values, value)
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noRowsFoundError()
-		}
-		return errorResult("%s", err.Error())
 	}
 
 	reverse, _ := q.GetBool("reverse")
@@ -502,7 +509,14 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		"tenants":   tenants,
 	}
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		log.Debug("could not acquire connection from pool", slog.String("sql", sql), slog.Any("args", args))
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
@@ -521,7 +535,13 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		Values:       make([]messagecollector.Value, 0),
 	}
 
-	_, err = pgx.ForEachRow(rows, []any{&id, &ts, &urn, &v, &vb}, func() error {
+	for rows.Next() {
+		err = rows.Scan(&id, &ts, &urn, &v, &vb)
+		if err != nil {
+			log.Debug("could not scan row", slog.String("sql", sql), slog.Any("args", args))
+			return errorResult("%s", err.Error())
+		}
+
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
 
 		_id := id
@@ -543,14 +563,6 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		if ts.After(*dr.LastObserved) {
 			dr.LastObserved = &_ts
 		}
-
-		return nil
-	})
-	if err != nil {
-		if errors.Is(err, pgx.ErrNoRows) {
-			return noRowsFoundError()
-		}
-		return errorResult("%s", err.Error())
 	}
 
 	return messagecollector.QueryResult{
