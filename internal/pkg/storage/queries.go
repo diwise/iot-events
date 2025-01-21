@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math"
 	"net/url"
 	"slices"
 	"strconv"
@@ -36,10 +37,16 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		return errorResult("%s", err.Error())
 	}
 
+	/*
+		sql := `
+			SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count
+			FROM events_measurements
+		`
+	*/
 	sql := `	
-		SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count 
-		FROM events_measurements		
-	`
+	SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant 
+	FROM events_measurements		
+`
 
 	where := `WHERE "id" = @id `
 
@@ -95,8 +102,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 
 	var ts time.Time
 	var device_id, urn, n, vs, unit, tenant string
-	var location pgtype.Point
-	var total_count int64
+	var location pgtype.Point	
 	var v *float64
 	var vb *bool
 
@@ -111,7 +117,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		Values: make([]messagecollector.Value, 0),
 	}
 
-	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &total_count}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant}, func() error {
 		value := messagecollector.Value{
 			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
@@ -143,12 +149,19 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	m.Tenant = tenant
 	m.Urn = urn
 
+	var total_count uint64 = math.MaxUint64
+	var count uint64 = uint64(len(m.Values))
+
+	if count < limit {
+		total_count = offset * limit - (limit - count)
+	}
+
 	return messagecollector.QueryResult{
 		Data:       m,
-		Count:      uint64(len(m.Values)),
+		Count:      count,
 		Offset:     offset,
 		Limit:      limit,
-		TotalCount: uint64(total_count),
+		TotalCount: total_count,
 		Error:      nil,
 	}
 }
