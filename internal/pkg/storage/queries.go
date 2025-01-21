@@ -102,7 +102,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 
 	var ts time.Time
 	var device_id, urn, n, vs, unit, tenant string
-	var location pgtype.Point	
+	var location pgtype.Point
 	var v *float64
 	var vb *bool
 
@@ -111,6 +111,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
+	defer rows.Close()
 
 	m := messagecollector.MeasurementResult{
 		ID:     id,
@@ -153,7 +154,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	var count uint64 = uint64(len(m.Values))
 
 	if count < limit {
-		total_count = offset * limit - (limit - count)
+		total_count = offset*limit - (limit - count)
 	}
 
 	return messagecollector.QueryResult{
@@ -235,6 +236,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
+	defer rows.Close()
 
 	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
 	if err != nil {
@@ -356,6 +358,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
+	defer rows.Close()
 
 	var ts time.Time
 	var n uint64
@@ -416,6 +419,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
+	defer rows.Close()
 
 	var ts time.Time
 	var id, n, vs, unit, tenant string
@@ -503,6 +507,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
+	defer rows.Close()
 
 	var id, urn string
 	var ts time.Time
