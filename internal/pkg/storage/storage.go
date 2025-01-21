@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
@@ -13,6 +14,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+//go:generate moq -rm -out storage_mock.go . Storage
 type Storage interface {
 	messagecollector.MeasurementRetriever
 	messagecollector.MeasurementStorer
@@ -60,6 +62,63 @@ func (s storageImpl) Save(ctx context.Context, m messagecollector.Measurement) e
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) {
 			log.Error("could not insert new measurement", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollector.Measurement) error {
+	log := logging.GetFromContext(ctx)
+
+	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
+			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)
+			ON CONFLICT (time, id) DO UPDATE 
+			SET v = COALESCE(EXCLUDED.v, events_measurements.v), 
+			    vs = COALESCE(EXCLUDED.vs, events_measurements.vs), 
+				vb = COALESCE(EXCLUDED.vb, events_measurements.vb),
+				updated_on = CURRENT_TIMESTAMP;`
+
+	spanCtx := trace.SpanContextFromContext(ctx)
+	batch := &pgx.Batch{}
+
+	for _, m := range measurements {
+		args := pgx.NamedArgs{
+			"time":      m.Timestamp.UTC(),
+			"id":        m.ID,
+			"device_id": m.DeviceID,
+			"n":         m.Name,
+			"urn":       m.Urn,
+			"lon":       m.Lon,
+			"lat":       m.Lat,
+			"v":         m.Value,
+			"vs":        m.StringValue,
+			"vb":        m.BoolValue,
+			"unit":      m.Unit,
+			"tenant":    m.Tenant,
+			"trace_id":  nil,
+		}
+
+		if spanCtx.HasTraceID() {
+			traceID := spanCtx.TraceID()
+			args["trace_id"] = traceID.String()
+		}
+
+		batch.Queue(sql, args)
+	}
+
+	ctx, cancel := context.WithDeadline(ctx, time.Now().Add(60*time.Second))
+	defer cancel()
+
+	results := s.conn.SendBatch(ctx, batch)
+	defer results.Close()
+
+	_, err := results.Exec()
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			log.Error("could not insert new measurements", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
 		}
 		return err
 	}

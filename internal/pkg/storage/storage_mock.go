@@ -31,6 +31,9 @@ var _ Storage = &StorageMock{}
 //			SaveFunc: func(ctx context.Context, m messagecollector.Measurement) error {
 //				panic("mock out the Save method")
 //			},
+//			SaveManyFunc: func(ctx context.Context, m []messagecollector.Measurement) error {
+//				panic("mock out the SaveMany method")
+//			},
 //		}
 //
 //		// use mockedStorage in code that requires Storage
@@ -49,6 +52,9 @@ type StorageMock struct {
 
 	// SaveFunc mocks the Save method.
 	SaveFunc func(ctx context.Context, m messagecollector.Measurement) error
+
+	// SaveManyFunc mocks the SaveMany method.
+	SaveManyFunc func(ctx context.Context, m []messagecollector.Measurement) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -88,11 +94,19 @@ type StorageMock struct {
 			// M is the m argument value.
 			M messagecollector.Measurement
 		}
+		// SaveMany holds details about calls to the SaveMany method.
+		SaveMany []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// M is the m argument value.
+			M []messagecollector.Measurement
+		}
 	}
 	lockQuery       sync.RWMutex
 	lockQueryDevice sync.RWMutex
 	lockQueryObject sync.RWMutex
 	lockSave        sync.RWMutex
+	lockSaveMany    sync.RWMutex
 }
 
 // Query calls QueryFunc.
@@ -252,5 +266,41 @@ func (mock *StorageMock) SaveCalls() []struct {
 	mock.lockSave.RLock()
 	calls = mock.calls.Save
 	mock.lockSave.RUnlock()
+	return calls
+}
+
+// SaveMany calls SaveManyFunc.
+func (mock *StorageMock) SaveMany(ctx context.Context, m []messagecollector.Measurement) error {
+	if mock.SaveManyFunc == nil {
+		panic("StorageMock.SaveManyFunc: method is nil but Storage.SaveMany was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+		M   []messagecollector.Measurement
+	}{
+		Ctx: ctx,
+		M:   m,
+	}
+	mock.lockSaveMany.Lock()
+	mock.calls.SaveMany = append(mock.calls.SaveMany, callInfo)
+	mock.lockSaveMany.Unlock()
+	return mock.SaveManyFunc(ctx, m)
+}
+
+// SaveManyCalls gets all the calls that were made to SaveMany.
+// Check the length with:
+//
+//	len(mockedStorage.SaveManyCalls())
+func (mock *StorageMock) SaveManyCalls() []struct {
+	Ctx context.Context
+	M   []messagecollector.Measurement
+} {
+	var calls []struct {
+		Ctx context.Context
+		M   []messagecollector.Measurement
+	}
+	mock.lockSaveMany.RLock()
+	calls = mock.calls.SaveMany
+	mock.lockSaveMany.RUnlock()
 	return calls
 }

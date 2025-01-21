@@ -18,6 +18,7 @@ import (
 
 type MeasurementStorer interface {
 	Save(ctx context.Context, m Measurement) error
+	SaveMany(ctx context.Context, m []Measurement) error
 }
 
 type MeasurementRetriever interface {
@@ -91,7 +92,7 @@ func (c *collector) run(ctx context.Context, m mediator.Mediator) {
 				continue
 			}
 
-			ctx, cancel := context.WithTimeout(msg.Context(), 30*time.Second)
+			ctx, cancel := context.WithTimeout(msg.Context(), 60*time.Second)
 			defer cancel()
 
 			err = store(ctx, c.s, incoming.Pack.Clone())
@@ -122,6 +123,8 @@ func store(ctx context.Context, s MeasurementStorer, pack senml.Pack) error {
 
 	var errs []error
 
+	measurements := make([]Measurement, 0)
+
 	for _, r := range pack {
 		n, err := strconv.Atoi(r.Name)
 		if err != nil || n == 0 {
@@ -146,12 +149,19 @@ func store(ctx context.Context, s MeasurementStorer, pack senml.Pack) error {
 		measurement.Lon = lon
 		measurement.Unit = rec.Unit
 
-		err = s.Save(ctx, measurement)
-		if err != nil {
-			log.Error("could not store measurement", "err", err.Error())
-			errs = append(errs, err)
-			continue
-		}
+		measurements = append(measurements, measurement)
+		/*
+			err = s.Save(ctx, measurement)
+			if err != nil {
+				log.Error("could not store measurement", "err", err.Error())
+				errs = append(errs, err)
+				continue
+			}
+		*/
+	}
+
+	if len(measurements) > 0 {
+		s.SaveMany(ctx, measurements)
 	}
 
 	return errors.Join(errs...)
