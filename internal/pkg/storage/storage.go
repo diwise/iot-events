@@ -116,11 +116,43 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 			trace_id 	TEXT NULL,			
 			UNIQUE ("time", "id"));
 			
-			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS created_on timestamp with time zone NULL DEFAULT CURRENT_TIMESTAMP;
-			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS updated_on timestamp with time zone NULL;
-			ALTER TABLE events_measurements ADD COLUMN IF NOT EXISTS trace_id TEXT NULL;
-			
 			CREATE INDEX IF NOT EXISTS idx_measurements_filters ON events_measurements (device_id, tenant, id, time DESC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
+
+			CREATE TABLE IF NOT EXISTS events_measurements_latest (
+			id  		TEXT NOT NULL,
+			device_id  	TEXT NOT NULL,
+			time 		TIMESTAMPTZ NOT NULL,
+			urn		  	TEXT NOT NULL,
+			v 			NUMERIC NULL,
+			vb 			BOOLEAN NULL,		
+			tenant 		TEXT NOT NULL,
+			UNIQUE ("id"));
+
+			CREATE INDEX IF NOT EXISTS idx_measurements_latest ON events_measurements_latest (device_id, tenant);
+
+			CREATE OR REPLACE FUNCTION update_latest_measurement()
+			RETURNS TRIGGER AS $$
+			BEGIN
+				-- Uppdatera värdet i events_measurements_latest
+				INSERT INTO events_measurements_latest (id, device_id, time, urn, v, vb, tenant)
+				VALUES (NEW.id, NEW.device_id, NEW.time, NEW.urn, NEW.v, NEW.vb, NEW.tenant)
+				ON CONFLICT (id) DO UPDATE
+				SET time = EXCLUDED.time,
+					v = EXCLUDED.v,
+					vb = EXCLUDED.vb;
+
+				RETURN NEW;
+			END;
+			$$ LANGUAGE plpgsql;
+
+			DROP TRIGGER IF EXISTS update_latest_trigger ON events_measurements;
+
+			CREATE TRIGGER update_latest_trigger
+			AFTER INSERT OR UPDATE ON events_measurements
+			FOR EACH ROW
+			WHEN (NEW.v IS NOT NULL OR NEW.vb IS NOT NULL)
+			EXECUTE FUNCTION update_latest_measurement();
+
 			`
 
 	countHyperTable := `SELECT COUNT(*) n FROM timescaledb_information.hypertables WHERE hypertable_name = 'events_measurements';`

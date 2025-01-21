@@ -33,7 +33,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	sql := `	
@@ -103,7 +103,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	m := messagecollector.MeasurementResult{
@@ -126,7 +126,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
 		}
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	reverse, _ := q.GetBool("reverse")
@@ -170,7 +170,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 
 	for _, m := range methods {
 		if !slices.Contains([]string{"avg", "min", "max", "sum", "rate"}, m) {
-			return errorResult(fmt.Sprintf("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m))
+			return errorResult("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m)
 		}
 	}
 
@@ -203,7 +203,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	log := logging.GetFromContext(ctx)
@@ -220,7 +220,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
@@ -228,7 +228,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
 		}
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	aggrResult := messagecollector.AggrResult{}
@@ -280,12 +280,12 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 
 	if !slices.Contains([]string{"hour", "day"}, timeUnit) {
-		return errorResult(fmt.Sprintf("invalid timeUnit, should be [hour, day] is %s", timeUnit))
+		return errorResult("invalid timeUnit, should be [hour, day] is %s", timeUnit)
 	}
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	if !idOk && !deviceIdOk && !urnOk {
@@ -341,7 +341,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	var ts time.Time
@@ -362,7 +362,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
 		}
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	result := messagecollector.MeasurementResult{
@@ -401,7 +401,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	var ts time.Time
@@ -455,7 +455,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
 		}
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	return messagecollector.QueryResult{
@@ -475,28 +475,10 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 
 	log := logging.GetFromContext(ctx)
 
-	/*
-		sql := `
-			WITH measurements AS (
-				SELECT time, id, urn, v, vb, ROW_NUMBER() OVER (PARTITION BY id ORDER BY time DESC) AS rn
-				FROM events_measurements
-				WHERE device_id = @device_id
-				  AND (v IS NOT NULL OR vb IS NOT NULL)
-				  AND tenant=any(@tenants)
-			)
-			SELECT time, id, urn, v, vb
-			FROM measurements
-			WHERE rn = 1;
-		`
-	*/
-
-	sql := `SELECT DISTINCT ON (id) time, id, urn, v, vb 
-			FROM events_measurements 
-			WHERE device_id = @device_id 
-			  AND (v IS NOT NULL OR vb IS NOT NULL) 
-			  AND tenant=any(@tenants) 
-			  AND time >= NOW() - INTERVAL '14 day' AND time <= NOW()
-			ORDER BY id, time DESC;`
+	sql := `SELECT id, time, urn, v, vb 
+			FROM events_measurements_latest 
+			WHERE device_id = @device_id  
+			  AND tenant=any(@tenants);`
 
 	args := pgx.NamedArgs{
 		"device_id": deviceID,
@@ -506,7 +488,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	var id, urn string
@@ -521,7 +503,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		Values:       make([]messagecollector.Value, 0),
 	}
 
-	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &urn, &v, &vb}, func() error {
+	_, err = pgx.ForEachRow(rows, []any{&id, &ts, &urn, &v, &vb}, func() error {
 		u := fmt.Sprintf("/api/v0/measurements?id=%s", url.QueryEscape(id))
 
 		_id := id
@@ -550,7 +532,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
 		}
-		return errorResult(err.Error())
+		return errorResult("%s", err.Error())
 	}
 
 	return messagecollector.QueryResult{
