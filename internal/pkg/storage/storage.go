@@ -131,12 +131,12 @@ func New(ctx context.Context, config Config) (Storage, error) {
 	if err != nil {
 		return nil, err
 	}
-
-	err = initialize(ctx, pool)
-	if err != nil {
-		return nil, err
-	}
-
+	/*
+		err = initialize(ctx, pool)
+		if err != nil {
+			return nil, err
+		}
+	*/
 	return storageImpl{
 		conn: pool,
 	}, nil
