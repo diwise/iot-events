@@ -26,7 +26,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	}
 
 	id, ok := q.GetString("id")
-	if !ok {
+	if !ok || id == "" {
 		return errorResult("query contains no ID")
 	}
 
@@ -108,7 +108,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 
 	c, err := s.conn.Acquire(ctx)
 	if err != nil {
-		log.Debug("could not acquire connection from pool", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("could not acquire connection from pool", slog.String("sql", sql), slog.Any("args", args), slog.String("err", err.Error()))
 		return errorResult("%s", err.Error())
 	}
 	defer c.Release()
@@ -128,7 +128,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	for rows.Next() {
 		err = rows.Scan(&ts, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant)
 		if err != nil {
-			log.Debug("could not scan row", slog.String("sql", sql), slog.Any("args", args))
+			log.Debug("could not scan row", slog.String("sql", sql), slog.Any("args", args), slog.String("err", err.Error()))
 			return errorResult("%s", err.Error())
 		}
 

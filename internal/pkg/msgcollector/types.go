@@ -24,8 +24,25 @@ func ParseQuery(q map[string][]string) QueryParams {
 	m := map[string][]string{}
 
 	for k, v := range q {
+		if len(v) == 0 {
+			continue
+		}
+
+		vv := []string{}
+
+		for _, s := range v {
+			if s == "" {
+				continue
+			}
+			vv = append(vv, s)
+		}
+
+		if len(vv) == 0 {
+			continue
+		}
+
 		key := strings.ToLower(k)
-		m[key] = v
+		m[key] = vv
 	}
 
 	return m
@@ -37,6 +54,11 @@ func (q QueryParams) GetString(key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
+	
+	if s[0] == "" {
+		return "", false
+	}
+
 	return s[0], true
 }
 
