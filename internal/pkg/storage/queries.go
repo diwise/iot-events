@@ -190,8 +190,8 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 
 	for _, m := range methods {
-		if !slices.Contains([]string{"avg", "min", "max", "sum", "rate"}, m) {
-			return errorResult("invalid aggrMethods, should be [avg, min, max, sum, rate] is %s", m)
+		if !slices.Contains([]string{"avg", "min", "max", "sum"}, m) {
+			return errorResult("invalid aggrMethods, should be [avg, min, max, sum] is %s", m)
 		}
 	}
 
@@ -321,25 +321,33 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	log := logging.GetFromContext(ctx)
 
 	args := pgx.NamedArgs{
-		"id":        id,
-		"device_id": device_id,
 		"urn":       urn,
 		"tenants":   tenants,
 		"timeAt":    timeAt,
 		"endTimeAt": endTimeAt,
 	}
 
-	sql := fmt.Sprintf("SELECT DATE_TRUNC('%s', time) e, count(*) n FROM events_measurements ", timeUnit)
-	sql += "WHERE tenant=any(@tenants) "
+	t := "1 day"
+	if timeUnit == "hour" {
+		t = "1 hour"
+	}
+
+	sql := fmt.Sprintf("SELECT time_bucket('%s', time) as bucket, count(*) as n FROM events_measurements WHERE tenant=any(@tenants) ", t)
+
 	if idOk {
 		sql += "AND \"id\" = @id "
+		args["id"] = id
 	}
+
 	if deviceIdOk {
 		sql += "AND \"device_id\" = @device_id "
+		args["device_id"] = device_id
 	}
+
 	if urnOk {
 		sql += "AND \"urn\" = @urn "
 	}
+
 	if vb, ok := q.GetBool("vb"); ok {
 		if vb {
 			sql += `AND vb IS NOT NULL AND vb=TRUE `
@@ -348,21 +356,14 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		}
 	}
 
-	if v, ok := q.GetString("v"); ok {
-		_, err := strconv.ParseFloat(v, 64)
-		if err == nil {
-			v = fmt.Sprintf("=%s", v)
-		}
-
-		sql += fmt.Sprintf("AND v IS NOT NULL AND v %s ", v)
-	}
-
 	sql += timeRelSql + " "
-	sql += "GROUP BY e ORDER BY e;"
+	sql += "GROUP BY bucket ORDER BY bucket ASC;"
+
+	log.Debug("rate query", slog.String("sql", sql), slog.Any("args", args))
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("query failed", "err", err.Error())
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
