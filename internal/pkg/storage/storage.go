@@ -142,25 +142,9 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 					
 					CREATE INDEX IF NOT EXISTS idx_measurements_filters ON events_measurements (device_id, tenant, id, time DESC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
 					CREATE INDEX IF NOT EXISTS idx_measurements_filters_asc ON events_measurements (device_id, tenant, id, time ASC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
-				END IF;
+					CREATE INDEX IF NOT EXISTS idx_query_object ON events_measurements (device_id, urn, id, "time" DESC) INCLUDE (location, n, v, vs, vb, unit, tenant);
+					CREATE INDEX IF NOT EXISTS idx_events_measurements_aggr ON events_measurements (id, tenant, v) WHERE v IS NOT NULL;
 
-				SELECT COUNT(*) INTO n
-				FROM pg_class c
-				JOIN pg_namespace ns ON ns.oid = c.relnamespace
-				WHERE c.relname = 'events_measurements_latest';
-
-				IF n = 0 THEN
-					CREATE TABLE IF NOT EXISTS events_measurements_latest (
-					id  		TEXT NOT NULL,
-					device_id  	TEXT NOT NULL,
-					time 		TIMESTAMPTZ NOT NULL,
-					urn		  	TEXT NOT NULL,
-					v 			NUMERIC NULL,
-					vb 			BOOLEAN NULL,		
-					tenant 		TEXT NOT NULL,
-					UNIQUE ("id"));
-
-					CREATE INDEX IF NOT EXISTS idx_measurements_latest ON events_measurements_latest (device_id, tenant);
 				END IF;
 
 				SELECT COUNT(*) INTO n
@@ -170,31 +154,8 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 				IF n = 0 THEN				
 					PERFORM create_hypertable('events_measurements', 'time');				
 				END IF;
-
 			END;
 			$$;
-
-			CREATE OR REPLACE FUNCTION update_latest_measurement()
-			RETURNS TRIGGER AS $$
-			BEGIN
-				INSERT INTO events_measurements_latest (id, device_id, time, urn, v, vb, tenant)
-				VALUES (NEW.id, NEW.device_id, NEW.time, NEW.urn, NEW.v, NEW.vb, NEW.tenant)
-				ON CONFLICT (id) DO UPDATE
-				SET time = EXCLUDED.time,
-					v = EXCLUDED.v,
-					vb = EXCLUDED.vb;
-			
-				RETURN NEW;
-			END;
-			$$ LANGUAGE plpgsql;
-
-			DROP TRIGGER IF EXISTS update_latest_trigger ON events_measurements;
-
-			CREATE TRIGGER update_latest_trigger
-			AFTER INSERT OR UPDATE ON events_measurements
-			FOR EACH ROW
-			WHEN (NEW.v IS NOT NULL OR NEW.vb IS NOT NULL)
-			EXECUTE FUNCTION update_latest_measurement();
 	`
 
 	tx, err := conn.Begin(ctx)

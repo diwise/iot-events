@@ -37,16 +37,9 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		return errorResult("%s", err.Error())
 	}
 
-	/*
-		sql := `
-			SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant, count(*) OVER () AS total_count
-			FROM events_measurements
-		`
-	*/
 	sql := `	
-	SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant 
-	FROM events_measurements		
-`
+		SELECT "time",device_id,urn,"location",n,v,vs,vb,unit,tenant 
+		FROM events_measurements `
 
 	where := `WHERE "id" = @id `
 
@@ -106,6 +99,8 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	var v *float64
 	var vb *bool
 
+	log.Debug("Query", slog.String("sql", sql), slog.Any("args", args))
+
 	c, err := s.conn.Acquire(ctx)
 	if err != nil {
 		log.Debug("could not acquire connection from pool", slog.String("sql", sql), slog.Any("args", args), slog.String("err", err.Error()))
@@ -161,7 +156,11 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	var count uint64 = uint64(len(m.Values))
 
 	if count < limit {
-		total_count = offset*limit - (limit - count)
+		if offset*limit == 0 {
+			total_count = count
+		} else {
+			total_count = offset*limit - (limit - count)
+		}
 	}
 
 	return messagecollector.QueryResult{
@@ -175,6 +174,8 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 }
 
 func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	log := logging.GetFromContext(ctx)
+
 	aggrMethods, ok := q.GetString("aggrMethods")
 	if !ok {
 		return errorResult("query contains no aggregate function parameter(s)")
@@ -218,6 +219,11 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		sumSql = `SUM(v) AS total,`
 	}
 
+	args := pgx.NamedArgs{
+		"id":      id,
+		"tenants": tenants,
+	}
+
 	sql := "SELECT " + avgSql + sumSql + minSql + maxSql
 	sql = strings.TrimSuffix(sql, ",")
 	sql += " FROM events_measurements WHERE \"id\" = @id AND v IS NOT NULL AND tenant=any(@tenants) "
@@ -227,16 +233,18 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("%s", err.Error())
 	}
 
-	log := logging.GetFromContext(ctx)
+	if timeRelSql != "" {
+		args["timeAt"] = timeAt
+		args["endTimeAt"] = endTimeAt
+	}
 
-	args := pgx.NamedArgs{
-		"id":        id,
-		"tenants":   tenants,
-		"timeAt":    timeAt,
-		"endTimeAt": endTimeAt,
+	if timeRelSql == "" {
+		timeRelSql = "AND time > NOW() - INTERVAL '5 day' AND time < NOW() "
 	}
 
 	sql = sql + timeRelSql
+
+	log.Debug("aggrQuery", slog.String("sql", sql), slog.Any("args", args))
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -359,7 +367,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	sql += timeRelSql + " "
 	sql += "GROUP BY bucket ORDER BY bucket ASC;"
 
-	log.Debug("rate query", slog.String("sql", sql), slog.Any("args", args))
+	log.Debug("rateQuery", slog.String("sql", sql), slog.Any("args", args))
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -407,13 +415,12 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 	log := logging.GetFromContext(ctx)
 
 	sql := `
-		SELECT "time", id, location, n, v, vs, vb, unit, tenant
-		FROM (
-			SELECT "time", id, location, n, v, vs, vb, unit, tenant, ROW_NUMBER() OVER (PARTITION BY "id" ORDER BY time DESC) as rn
-			FROM events_measurements
-			WHERE "device_id" = @device_id AND "urn" = @urn AND tenant=any(@tenants)
-		) subquery
-		WHERE rn = 1;
+		select distinct on (id) time, id, location, n, v, vs, vb, unit, tenant 
+		from events_measurements 
+		where device_id=@device_id 
+		  and urn=@urn and tenant=any(@tenants) 
+		  and time > NOW() - INTERVAL '5 day' and time < NOW() 
+		order by id, time DESC;
 	`
 
 	args := pgx.NamedArgs{
@@ -421,6 +428,8 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 		"urn":       urn,
 		"tenants":   tenants,
 	}
+
+	log.Debug("QueryObject", slog.String("sql", sql), slog.Any("args", args))
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -500,15 +509,21 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 
 	log := logging.GetFromContext(ctx)
 
-	sql := `SELECT id, time, urn, v, vb 
-			FROM events_measurements_latest 
-			WHERE device_id = @device_id  
-			  AND tenant=any(@tenants);`
+	sql := `
+	  select distinct on (id) id, time, urn, v, vb 
+	  from events_measurements 
+	  where device_id=@device_id 
+	  	and tenant=any(@tenants) 
+	    and (v is not null or vb is not null) 	    
+		and time > NOW() - INTERVAL '5 day' and time < NOW()		
+		order by id, time DESC;`
 
 	args := pgx.NamedArgs{
 		"device_id": deviceID,
 		"tenants":   tenants,
 	}
+
+	log.Debug("QueryDevice", slog.String("sql", sql), slog.Any("args", args))
 
 	c, err := s.conn.Acquire(ctx)
 	if err != nil {
@@ -582,6 +597,10 @@ func getTimeRelSQL(q messagecollector.QueryParams) (string, time.Time, time.Time
 		if !slices.Contains([]string{"after", "before", "between"}, timeRel) {
 			return "", time.Time{}, time.Time{}, fmt.Errorf("invalid timeRel, should be [after, before, between] is %s", timeRel)
 		}
+	}
+
+	if !ok {
+		return "", time.Time{}, time.Time{}, nil
 	}
 
 	var timeAt, endTimeAt time.Time
