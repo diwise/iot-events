@@ -54,7 +54,7 @@ func (q QueryParams) GetString(key string) (string, bool) {
 	if !ok {
 		return "", false
 	}
-	
+
 	if s[0] == "" {
 		return "", false
 	}
@@ -164,4 +164,5 @@ type AggrResult struct {
 	Total   *float64 `json:"sum,omitempty"`
 	Minimum *float64 `json:"min,omitempty"`
 	Maximum *float64 `json:"max,omitempty"`
+	Count   *uint64  `json:"count,omitempty"`
 }

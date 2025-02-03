@@ -190,6 +190,10 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		return s.rateQuery(ctx, q, tenants)
 	}
 
+	if slices.Contains(methods, "count") {
+		return s.countQuery(ctx, q, tenants)
+	}
+
 	for _, m := range methods {
 		if !slices.Contains([]string{"avg", "min", "max", "sum"}, m) {
 			return errorResult("invalid aggrMethods, should be [avg, min, max, sum] is %s", m)
@@ -289,20 +293,6 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	id, idOk := q.GetString("id")
 	device_id, deviceIdOk := q.GetString("device_id")
 	urn, urnOk := q.GetString("urn")
-
-	aggrMethods, ok := q.GetString("aggrMethods")
-	if !ok {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	methods := strings.Split(aggrMethods, ",")
-	if len(methods) == 0 {
-		return errorResult("query contains no aggregate function parameter(s)")
-	}
-
-	if !slices.Contains(methods, "rate") {
-		return errorResult("query contains no rate function")
-	}
 
 	timeUnit, ok := q.GetString("timeUnit")
 	if !ok {
@@ -407,6 +397,53 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		Offset:     0,
 		Limit:      uint64(len(result.Values)),
 		TotalCount: uint64(len(result.Values)),
+		Error:      nil,
+	}
+}
+
+func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	var id string
+	var ok bool
+
+	if id, ok = q.GetString("id"); !ok {
+		return errorResult("query contains no ID")
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	sql := `
+	SELECT COUNT(*) FILTER 
+	(
+		WHERE "id" = @id 
+		AND vb IS TRUE	
+		AND tenant=any(@tenants)
+	) AS n
+	FROM events_measurements;`
+
+	args := pgx.NamedArgs{
+		"id":      id,
+		"tenants": tenants,
+	}
+
+	log.Debug("countQuery", slog.String("sql", sql), slog.Any("args", args))
+
+	var n uint64
+	err := s.conn.QueryRow(ctx, sql, args).Scan(&n)
+	if err != nil {
+		log.Debug("query failed", "err", err.Error())
+		return errorResult("%s", err.Error())
+	}
+
+	aggres := messagecollector.AggrResult{
+		Count: &n,
+	}
+
+	return messagecollector.QueryResult{
+		Data:       aggres,
+		Count:      1,
+		Offset:     0,
+		Limit:      1,
+		TotalCount: 1,
 		Error:      nil,
 	}
 }
