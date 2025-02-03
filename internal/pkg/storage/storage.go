@@ -144,6 +144,13 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 					CREATE INDEX IF NOT EXISTS idx_measurements_filters_asc ON events_measurements (device_id, tenant, id, time ASC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
 					CREATE INDEX IF NOT EXISTS idx_query_object ON events_measurements (device_id, urn, id, "time" DESC) INCLUDE (location, n, v, vs, vb, unit, tenant);
 					CREATE INDEX IF NOT EXISTS idx_events_measurements_aggr ON events_measurements (id, tenant, v) WHERE v IS NOT NULL;
+					CREATE INDEX IF NOT EXISTS idx_events_measurements_id_tenant_vb_true ON events_measurements ("id", tenant) WHERE vb IS TRUE;
+
+					CREATE MATERIALIZED VIEW count_by_day WITH (timescaledb.continuous) AS
+					SELECT time_bucket('1 day', time) AS bucket, "id", tenant, count(vb) as n
+					FROM events_measurements
+					WHERE vb IS TRUE AND id like '%/3200/%'
+					GROUP BY bucket, "id", tenant;
 
 				END IF;
 

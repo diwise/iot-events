@@ -411,14 +411,16 @@ func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryPar
 
 	log := logging.GetFromContext(ctx)
 
-	sql := `
-	SELECT COUNT(*) FILTER 
-	(
-		WHERE "id" = @id 
-		AND vb IS TRUE	
-		AND tenant=any(@tenants)
-	) AS n
-	FROM events_measurements;`
+	sql := ""
+
+	count3200 := "SELECT SUM(n) FROM count_by_day WHERE id = @id AND tenant=any(@tenants) GROUP BY id;"
+	countAll := "SELECT COUNT(*) FILTER (WHERE id = @id AND vb IS TRUE AND tenant=any(@tenants)) AS n FROM events_measurements;"
+
+	if strings.Contains(id, "/3200/") {
+		sql = count3200
+	} else {
+		sql = countAll
+	}
 
 	args := pgx.NamedArgs{
 		"id":      id,
