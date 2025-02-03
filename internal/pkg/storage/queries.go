@@ -209,6 +209,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 	sumSql := "0 as sum,"
 	minSql := "0 as min,"
 	maxSql := "0 as max,"
+	countSql := "0 as n,"
 
 	if slices.Contains(methods, "avg") {
 		avgSql = `AVG(v) AS average,`
@@ -228,7 +229,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		"tenants": tenants,
 	}
 
-	sql := "SELECT " + avgSql + sumSql + minSql + maxSql
+	sql := "SELECT " + avgSql + sumSql + minSql + maxSql + countSql
 	sql = strings.TrimSuffix(sql, ",")
 	sql += " FROM events_measurements WHERE \"id\" = @id AND v IS NOT NULL AND tenant=any(@tenants) "
 
