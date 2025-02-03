@@ -110,7 +110,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 
 	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("Query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
@@ -235,6 +235,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
+		log.Debug("aggrQuery failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
 
@@ -362,7 +363,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("query failed", "err", err.Error())
+		log.Debug("rateQuery failed", "err", err.Error())
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
@@ -433,8 +434,12 @@ func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryPar
 	var n uint64
 	err := s.conn.QueryRow(ctx, sql, args).Scan(&n)
 	if err != nil {
-		log.Debug("query failed", "err", err.Error())
-		return errorResult("%s", err.Error())
+		if !errors.Is(err, pgx.ErrNoRows) {
+			log.Debug("countQuery failed", "err", err.Error())
+			return errorResult("%s", err.Error())
+		}
+
+		n = 0
 	}
 
 	aggres := messagecollector.AggrResult{
@@ -473,7 +478,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("QueryObject failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
@@ -574,7 +579,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 
 	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("QueryDevice failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
