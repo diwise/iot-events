@@ -13,7 +13,7 @@ services:
       - pgadmin-data:/var/lib/pgadmin      
 
   timescale:
-    image: timescale/timescaledb-ha:pg14-latest
+    image: timescale/timescaledb-ha:pg15-latest
     restart: always
     healthcheck:
       test: [ "CMD-SHELL", "pg_isready -U postgres" ]

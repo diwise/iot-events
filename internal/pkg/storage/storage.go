@@ -112,69 +112,56 @@ func connect(ctx context.Context, config Config) (*pgxpool.Pool, error) {
 }
 
 func initialize(ctx context.Context, conn *pgxpool.Pool) error {
-	ddl := `
-			DO $$
-			DECLARE
-				n INTEGER;
-			BEGIN			
-				SELECT COUNT(*) INTO n
-				FROM pg_class c
-				JOIN pg_namespace ns ON ns.oid = c.relnamespace
-				WHERE c.relname = 'events_measurements';
-				
-				IF n = 0 THEN
-					CREATE TABLE IF NOT EXISTS events_measurements (
-					time 		TIMESTAMPTZ NOT NULL,
-					id  		TEXT NOT NULL,
-					device_id  	TEXT NOT NULL,
-					urn		  	TEXT NOT NULL,
-					location 	POINT NULL,
-					n 			TEXT NOT NULL,									
-					v 			NUMERIC NULL,
-					vs 			TEXT NOT NULL DEFAULT '',			
-					vb 			BOOLEAN NULL,			
-					unit 		TEXT NOT NULL DEFAULT '',
-					tenant 		TEXT NOT NULL,
-					created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
-					updated_on  timestamp with time zone NULL, 
-					trace_id 	TEXT NULL,			
-					UNIQUE ("time", "id"));
-					
-					CREATE INDEX IF NOT EXISTS idx_measurements_filters ON events_measurements (device_id, tenant, id, time DESC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
-					CREATE INDEX IF NOT EXISTS idx_measurements_filters_asc ON events_measurements (device_id, tenant, id, time ASC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
-					CREATE INDEX IF NOT EXISTS idx_query_object ON events_measurements (device_id, urn, id, "time" DESC) INCLUDE (location, n, v, vs, vb, unit, tenant);
-					CREATE INDEX IF NOT EXISTS idx_events_measurements_aggr ON events_measurements (id, tenant, v) WHERE v IS NOT NULL;
-					CREATE INDEX IF NOT EXISTS idx_events_measurements_id_tenant_vb_true ON events_measurements ("id", tenant) WHERE vb IS TRUE;
+	c, err := conn.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Release()
 
-					CREATE MATERIALIZED VIEW count_by_day WITH (timescaledb.continuous) AS
-					SELECT time_bucket('1 day', time) AS bucket, "id", tenant, count(vb) as n
-					FROM events_measurements
-					WHERE vb IS TRUE AND id like '%/3200/%'
-					GROUP BY bucket, "id", tenant;
-
-				END IF;
-
-				SELECT COUNT(*) INTO n
-				FROM timescaledb_information.hypertables
-				WHERE hypertable_name = 'events_measurements';
-
-				IF n = 0 THEN				
-					PERFORM create_hypertable('events_measurements', 'time');				
-				END IF;
-			END;
-			$$;
-	`
-
-	tx, err := conn.Begin(ctx)
+	_, err = c.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS events_measurements (
+		time 		TIMESTAMPTZ NOT NULL,
+		id  		TEXT NOT NULL,
+		device_id  	TEXT NOT NULL,
+		urn		  	TEXT NOT NULL,
+		location 	POINT NULL,
+		n 			TEXT NOT NULL,									
+		v 			NUMERIC NULL,
+		vs 			TEXT NOT NULL DEFAULT '',			
+		vb 			BOOLEAN NULL,			
+		unit 		TEXT NOT NULL DEFAULT '',
+		tenant 		TEXT NOT NULL,
+		created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_on  timestamp with time zone NULL, 
+		trace_id 	TEXT NULL,			
+		UNIQUE ("time", "id"));`)
 	if err != nil {
 		return err
 	}
 
-	_, err = tx.Exec(ctx, ddl)
+	_, err = c.Exec(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_measurements_filters ON events_measurements (device_id, tenant, id, time DESC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
+		CREATE INDEX IF NOT EXISTS idx_measurements_filters_asc ON events_measurements (device_id, tenant, id, time ASC) WHERE (v IS NOT NULL OR vb IS NOT NULL);
+		CREATE INDEX IF NOT EXISTS idx_query_object ON events_measurements (device_id, urn, id, "time" DESC) INCLUDE (location, n, v, vs, vb, unit, tenant);
+		CREATE INDEX IF NOT EXISTS idx_events_measurements_aggr ON events_measurements (id, tenant, v) WHERE v IS NOT NULL;
+		CREATE INDEX IF NOT EXISTS idx_events_measurements_id_tenant_vb_true ON events_measurements ("id", tenant) WHERE vb IS TRUE;
+	`)
 	if err != nil {
-		tx.Rollback(ctx)
 		return err
 	}
 
-	return tx.Commit(ctx)
+	_, _ = c.Exec(ctx, `SELECT create_hypertable('events_measurements', 'time');`)
+
+	_, err = c.Exec(ctx, `
+		CREATE MATERIALIZED VIEW IF NOT EXISTS count_by_day WITH (timescaledb.continuous) AS
+		SELECT time_bucket('1 day', time) AS bucket, "id", tenant, count(vb) as n
+		FROM events_measurements
+		WHERE vb IS TRUE AND id like '%/3200/%'
+		GROUP BY bucket, "id", tenant;	
+	`)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
