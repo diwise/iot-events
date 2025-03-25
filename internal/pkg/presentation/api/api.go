@@ -155,7 +155,6 @@ func EventSource(m mediator.Mediator, log *slog.Logger) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
 		w.Header().Set("X-Accel-Buffering", "no")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
 
 		ctx := logging.NewContextWithLogger(r.Context(), log)
 
@@ -168,11 +167,6 @@ func EventSource(m mediator.Mediator, log *slog.Logger) http.HandlerFunc {
 			m.Unregister(subscriber)
 		}()
 
-		go func() {
-			<-r.Context().Done()
-			m.Unregister(subscriber)
-		}()
-
 		w.WriteHeader(http.StatusOK)
 		flusher.Flush()
 
@@ -181,37 +175,44 @@ func EventSource(m mediator.Mediator, log *slog.Logger) http.HandlerFunc {
 		logger := logging.GetFromContext(ctx)
 
 		for {
-			msg := <-subscriber.Mailbox()
+			select {
+			case <-r.Context().Done():
+				{
+					m.Unregister(subscriber)
+				}
+			case msg := <-subscriber.Mailbox():
+				{
+					cacheId := ""
+					m := struct {
+						DeviceID *string `json:"deviceID,omitempty"`
+					}{}
 
-			cacheId := ""
-			m := struct {
-				DeviceID *string `json:"deviceID,omitempty"`
-			}{}
+					if err := json.Unmarshal(msg.Data(), &m); err == nil && m.DeviceID != nil {
+						cacheId = fmt.Sprintf("%s:%s", *m.DeviceID, msg.Type())
+						if t, ok := msgCache[cacheId]; ok {
+							if time.Now().UTC().Before(t) {
+								continue
+							}
+						}
+					}
 
-			if err := json.Unmarshal(msg.Data(), &m); err == nil && m.DeviceID != nil {
-				cacheId = fmt.Sprintf("%s:%s", *m.DeviceID, msg.Type())
-				if t, ok := msgCache[cacheId]; ok {
-					if time.Now().UTC().Before(t) {
-						continue
+					_, err := w.Write(formatMessage(msg))
+					if err != nil {
+						logger.Error("could not write to response", "err", err.Error())
+					}
+
+					flusher.Flush()
+					logger.Debug(
+						"message sent to subscriber",
+						"message_type", msg.Type(),
+						"message_id", msg.ID(),
+						"subscriber_id", subscriber.ID(),
+					)
+
+					if cacheId != "" {
+						msgCache[cacheId] = time.Now().UTC().Add(30 * time.Second)
 					}
 				}
-			}
-
-			_, err := w.Write(formatMessage(msg))
-			if err != nil {
-				logger.Error("could not write to response", "err", err.Error())
-			}
-
-			flusher.Flush()
-			logger.Debug(
-				"message sent to subscriber",
-				"message_type", msg.Type(),
-				"message_id", msg.ID(),
-				"subscriber_id", subscriber.ID(),
-			)
-
-			if cacheId != "" {
-				msgCache[cacheId] = time.Now().UTC().Add(30 * time.Second)
 			}
 		}
 	}

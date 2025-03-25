@@ -82,7 +82,7 @@ func (s *ceSubscriberImpl) ID() string {
 func (s *ceSubscriberImpl) Tenants() []string {
 	return s.tenants
 }
-func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
+func (s *ceSubscriberImpl) Mailbox() <-chan mediator.Message {
 	return s.inbox
 }
 func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
@@ -93,6 +93,9 @@ func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
 	s.inbox <- m
 
 	return true
+}
+func (s *ceSubscriberImpl) Shutdown() {
+	close(s.inbox)
 }
 
 func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {

@@ -72,8 +72,9 @@ func (m *messageImpl) Context() context.Context {
 type Subscriber interface {
 	ID() string
 	Tenants() []string
-	Mailbox() chan Message
+	Mailbox() <-chan Message
 	Handle(m Message) bool
+	Shutdown()
 }
 
 type subscriberImpl struct {
@@ -91,7 +92,7 @@ func NewSubscriber(tenants []string) Subscriber {
 
 	return &subscriberImpl{
 		id:      id,
-		inbox:   make(chan Message),
+		inbox:   make(chan Message, 32),
 		tenants: tenants,
 	}
 }
@@ -102,7 +103,7 @@ func (s *subscriberImpl) ID() string {
 func (s *subscriberImpl) Tenants() []string {
 	return s.tenants
 }
-func (s *subscriberImpl) Mailbox() chan Message {
+func (s *subscriberImpl) Mailbox() <-chan Message {
 	return s.inbox
 }
 func (s *subscriberImpl) Handle(m Message) bool {
@@ -113,6 +114,10 @@ func (s *subscriberImpl) Handle(m Message) bool {
 		}
 	}
 	return false
+}
+
+func (s *subscriberImpl) Shutdown() {
+	close(s.inbox)
 }
 
 //go:generate moq -rm -out mediator_mock.go . Mediator
@@ -183,6 +188,7 @@ func (m *mediatorImpl) Start(ctx context.Context) {
 				m.subscribers[s.ID()] = s
 				m.logger.Debug("register new subscriber", "subscriber_id", s.ID(), "tenants", tenants(s.Tenants()), "total", len(m.subscribers))
 			case s := <-m.unregister:
+				s.Shutdown()
 				delete(m.subscribers, s.ID())
 				m.logger.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", len(m.subscribers))
 			case subscriberCountQueried := <-m.subscount:

@@ -165,7 +165,7 @@ func (c *collector) Tenants() []string {
 	return []string{}
 }
 
-func (c *collector) Mailbox() chan mediator.Message {
+func (c *collector) Mailbox() <-chan mediator.Message {
 	return c.inbox
 }
 
@@ -177,4 +177,8 @@ func (c *collector) Handle(m mediator.Message) bool {
 	c.inbox <- m
 
 	return true
+}
+
+func (c *collector) Shutdown() {
+	close(c.inbox)
 }
