@@ -19,6 +19,12 @@ var _ Storage = &StorageMock{}
 //
 //		// make and configure a mocked Storage
 //		mockedStorage := &StorageMock{
+//			FetchFunc: func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+//				panic("mock out the Fetch method")
+//			},
+//			FetchLatestFunc: func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+//				panic("mock out the FetchLatest method")
+//			},
 //			QueryFunc: func(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 //				panic("mock out the Query method")
 //			},
@@ -41,6 +47,12 @@ var _ Storage = &StorageMock{}
 //
 //	}
 type StorageMock struct {
+	// FetchFunc mocks the Fetch method.
+	FetchFunc func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error)
+
+	// FetchLatestFunc mocks the FetchLatest method.
+	FetchLatestFunc func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error)
+
 	// QueryFunc mocks the Query method.
 	QueryFunc func(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult
 
@@ -58,6 +70,26 @@ type StorageMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Fetch holds details about calls to the Fetch method.
+		Fetch []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// DeviceID is the deviceID argument value.
+			DeviceID string
+			// Q is the q argument value.
+			Q messagecollector.QueryParams
+			// Tenants is the tenants argument value.
+			Tenants []string
+		}
+		// FetchLatest holds details about calls to the FetchLatest method.
+		FetchLatest []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// DeviceID is the deviceID argument value.
+			DeviceID string
+			// Tenants is the tenants argument value.
+			Tenants []string
+		}
 		// Query holds details about calls to the Query method.
 		Query []struct {
 			// Ctx is the ctx argument value.
@@ -102,11 +134,97 @@ type StorageMock struct {
 			M []messagecollector.Measurement
 		}
 	}
+	lockFetch       sync.RWMutex
+	lockFetchLatest sync.RWMutex
 	lockQuery       sync.RWMutex
 	lockQueryDevice sync.RWMutex
 	lockQueryObject sync.RWMutex
 	lockSave        sync.RWMutex
 	lockSaveMany    sync.RWMutex
+}
+
+// Fetch calls FetchFunc.
+func (mock *StorageMock) Fetch(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+	if mock.FetchFunc == nil {
+		panic("StorageMock.FetchFunc: method is nil but Storage.Fetch was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		DeviceID string
+		Q        messagecollector.QueryParams
+		Tenants  []string
+	}{
+		Ctx:      ctx,
+		DeviceID: deviceID,
+		Q:        q,
+		Tenants:  tenants,
+	}
+	mock.lockFetch.Lock()
+	mock.calls.Fetch = append(mock.calls.Fetch, callInfo)
+	mock.lockFetch.Unlock()
+	return mock.FetchFunc(ctx, deviceID, q, tenants)
+}
+
+// FetchCalls gets all the calls that were made to Fetch.
+// Check the length with:
+//
+//	len(mockedStorage.FetchCalls())
+func (mock *StorageMock) FetchCalls() []struct {
+	Ctx      context.Context
+	DeviceID string
+	Q        messagecollector.QueryParams
+	Tenants  []string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		DeviceID string
+		Q        messagecollector.QueryParams
+		Tenants  []string
+	}
+	mock.lockFetch.RLock()
+	calls = mock.calls.Fetch
+	mock.lockFetch.RUnlock()
+	return calls
+}
+
+// FetchLatest calls FetchLatestFunc.
+func (mock *StorageMock) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+	if mock.FetchLatestFunc == nil {
+		panic("StorageMock.FetchLatestFunc: method is nil but Storage.FetchLatest was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		DeviceID string
+		Tenants  []string
+	}{
+		Ctx:      ctx,
+		DeviceID: deviceID,
+		Tenants:  tenants,
+	}
+	mock.lockFetchLatest.Lock()
+	mock.calls.FetchLatest = append(mock.calls.FetchLatest, callInfo)
+	mock.lockFetchLatest.Unlock()
+	return mock.FetchLatestFunc(ctx, deviceID, tenants)
+}
+
+// FetchLatestCalls gets all the calls that were made to FetchLatest.
+// Check the length with:
+//
+//	len(mockedStorage.FetchLatestCalls())
+func (mock *StorageMock) FetchLatestCalls() []struct {
+	Ctx      context.Context
+	DeviceID string
+	Tenants  []string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		DeviceID string
+		Tenants  []string
+	}
+	mock.lockFetchLatest.RLock()
+	calls = mock.calls.FetchLatest
+	mock.lockFetchLatest.RUnlock()
+	return calls
 }
 
 // Query calls QueryFunc.

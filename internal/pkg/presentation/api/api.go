@@ -41,7 +41,7 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /events", EventSource(mediator, log))
 	mux.HandleFunc("GET /measurements", NewQueryMeasurementsHandler(storage, log))
-	mux.HandleFunc("GET /measurements/{deviceID}", NewQueryDeviceHandler(storage, log))
+	mux.HandleFunc("GET /measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
 
 	routeGroup := http.StripPrefix(apiPrefix, mux)
 	rootMux.Handle("GET "+apiPrefix+"/", authenticator(routeGroup))
@@ -51,8 +51,8 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 	return nil
 }
 
-func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
-	pattern := `^urn:oma:lwm2m:ext:\d+$`
+func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
+	pattern := `^urn:oma:lwm2m.*$`
 	urnPatternRegex := regexp.MustCompile(pattern)
 
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -77,31 +77,39 @@ func NewQueryDeviceHandler(m messagecollector.MeasurementRetriever, log *slog.Lo
 			return urnPatternRegex.MatchString(urn)
 		}
 
-		var result messagecollector.QueryResult
-
 		urn := r.URL.Query().Get("urn")
-
-		if urn != "" {
-			if !validateURN(urn) {
-				logger.Error("invalid urn", "err", err.Error())
-				w.WriteHeader(http.StatusBadRequest)
-				return
-			}
-			result = m.QueryObject(ctx, deviceID, urn, allowedTenants)
-		} else {
-			result = m.QueryDevice(ctx, deviceID, allowedTenants)
-		}
-		if result.Error != nil {
-			logger.Error("could not query device", "err", result.Error.Error())
-			w.WriteHeader(http.StatusInternalServerError)
+		if urn != "" && !validateURN(urn) {
+			logger.Error("invalid urn query parameter")
+			w.WriteHeader(http.StatusBadRequest)
 			return
 		}
 
-		resp := NewApiResponse(r, result.Data, result.Count, result.TotalCount, result.Offset, result.Limit)
+		var result any
+
+		latest := r.URL.Query().Get("latest")
+		if latest == "true" {
+			result, err = m.FetchLatest(ctx, deviceID, allowedTenants)
+			if err != nil {
+				logger.Error("could not fetch latest measurements for device", "device_id", deviceID, "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		} else {
+			result, err = m.Fetch(ctx, deviceID, messagecollector.ParseQuery(r.URL.Query()), allowedTenants)
+			if err != nil {
+				logger.Error("could not fetch measurements for device", "device_id", deviceID, "err", err)
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+		}
+
+		response := ApiResponse{
+			Data: result,
+		}
 
 		w.Header().Add("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write(resp.Byte())
+		w.Write(response.Byte())
 	}
 }
 
