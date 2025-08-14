@@ -547,6 +547,154 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 	}
 }
 
+func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+	log := logging.GetFromContext(ctx)
+
+	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
+	if err != nil {
+		return map[string][]messagecollector.Value{}, err
+	}
+
+	args := pgx.NamedArgs{
+		"device_id": deviceID,
+		"tenants":   tenants,
+		"timeAt":    timeAt,
+		"endTimeAt": endTimeAt,
+	}
+
+	urnSql := ""
+	if urn, ok := q.GetString("urn"); ok {
+		args["urn"] = urn
+		urnSql = " AND urn=@urn "
+	}
+
+	sql := fmt.Sprintf(`
+		SELECT "time", 
+		id, 
+		v, 
+		vb,
+		unit, 
+		CASE
+			WHEN id LIKE CONCAT(device_id, '/%%')
+    		THEN SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
+    		ELSE NULL
+  		END AS n  
+		FROM events_measurements
+		WHERE device_id = @device_id 
+		  AND tenant=any(@tenants)  
+		  %s
+		  %s
+		  AND (v IS NOT NULL OR vb IS NOT NULL)
+		ORDER BY id, "time" ASC;
+	`, timeRelSql, urnSql)
+
+	log.Debug("Fetch", slog.String("sql", sql), slog.Any("args", args))
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("Fetch failed", slog.String("sql", sql), slog.Any("args", args))
+		return map[string][]messagecollector.Value{}, err
+	}
+	defer rows.Close()
+
+	var ts time.Time
+	var id, unit, n string
+	var v *float64
+	var vb *bool
+
+	val := map[string][]messagecollector.Value{}
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &v, &vb, &unit, &n}, func() error {
+		_id := id
+		_ts := ts.UTC()
+		_v := v
+		_vb := vb
+		_unit := unit
+		_n := n
+
+		value := messagecollector.Value{
+			ID:        &_id,
+			Timestamp: _ts.UTC(),
+			BoolValue: _vb,
+			Value:     _v,
+			Unit:      _unit,
+		}
+
+		val[_n] = append(val[_n], value)
+		return nil
+	})
+	if err != nil {
+		return map[string][]messagecollector.Value{}, nil
+	}
+
+	return val, nil
+}
+
+func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+	if deviceID == "" {
+		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")
+	}
+	log := logging.GetFromContext(ctx)
+
+	args := pgx.NamedArgs{
+		"device_id": deviceID,
+		"tenants":   tenants,
+	}
+
+	sql := `SELECT DISTINCT on (id) id, "time",
+ 			CASE WHEN id LIKE CONCAT(device_id, '/%')THEN 
+ 				SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
+ 			ELSE 
+ 				NULL 
+ 			END AS n,
+ 			v, vb, unit
+			FROM events_measurements
+			WHERE device_id = @device_id
+				AND tenant=any(@tenants)
+  				AND ((v IS NOT NULL) OR (vb IS NOT NULL))
+			ORDER BY id ASC, "time" DESC;`
+
+	log.Debug("FetchLatest", slog.String("sql", sql), slog.Any("args", args))
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("Fetch failed", slog.String("sql", sql), slog.Any("args", args))
+		return []messagecollector.Value{}, err
+	}
+	defer rows.Close()
+
+	var ts time.Time
+	var id, unit, n string
+	var v *float64
+	var vb *bool
+
+	val := []messagecollector.Value{}
+
+	_, err = pgx.ForEachRow(rows, []any{&id, &ts, &n, &v, &vb, &unit}, func() error {
+		_id := id
+		_ts := ts.UTC()
+		_v := v
+		_vb := vb
+		_unit := unit
+
+		value := messagecollector.Value{
+			ID:        &_id,
+			Timestamp: _ts.UTC(),
+			BoolValue: _vb,
+			Value:     _v,
+			Unit:      _unit,
+		}
+
+		val = append(val, value)
+		return nil
+	})
+	if err != nil {
+		return []messagecollector.Value{}, nil
+	}
+
+	return val, nil
+}
+
 func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
 	if deviceID == "" {
 		return errorResult("query contains no deviceID")
