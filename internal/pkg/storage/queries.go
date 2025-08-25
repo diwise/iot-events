@@ -630,55 +630,6 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 	return val, nil
 }
 
-func (s storageImpl) FetchIDOnly(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
-	if deviceID == "" {
-		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")
-	}
-
-	log := logging.GetFromContext(ctx)
-
-	args := pgx.NamedArgs{
-		"device_id": deviceID,
-		"tenants":   tenants,
-	}
-
-	sql := `
-		SELECT id
-		FROM events_measurements
-		WHERE device_id = @device_id
-		AND tenant = ANY(@tenants)
-		AND (v IS NOT NULL OR vb IS NOT NULL)
-		GROUP BY id
-		ORDER BY id;
-	`
-
-	log.Debug("FetchIDOnly", slog.String("sql", sql), slog.Any("args", args))
-
-	rows, err := s.conn.Query(ctx, sql, args)
-	if err != nil {
-		log.Debug("FetchIDOnly failed", slog.String("sql", sql), slog.Any("args", args))
-		return []messagecollector.Value{}, err
-	}
-	defer rows.Close()
-
-	var id string
-	var values []messagecollector.Value
-
-	_, err = pgx.ForEachRow(rows, []any{&id}, func() error {
-		_id := id
-		_n := strings.Replace(_id, fmt.Sprintf("%s/", deviceID), "", 1)
-
-		values = append(values, messagecollector.Value{ID: &_id, Name: &_n})
-
-		return nil
-	})
-	if err != nil {
-		return []messagecollector.Value{}, nil
-	}
-
-	return values, nil
-}
-
 func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
 	if deviceID == "" {
 		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")
@@ -689,45 +640,17 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 		"device_id": deviceID,
 		"tenants":   tenants,
 	}
-	/*
-	   	sql := `SELECT DISTINCT on (id) id, "time",
-	    			CASE WHEN id LIKE CONCAT(device_id, '/%')THEN
-	    				SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
-	    			ELSE
-	    				NULL
-	    			END AS n,
-	    			v, vb, unit
-	   			FROM events_measurements
-	   			WHERE device_id = @device_id
-	   				AND tenant=any(@tenants)
-	     				AND ((v IS NOT NULL) OR (vb IS NOT NULL))
-	   			ORDER BY id ASC, "time" DESC;`
-	*/
-	sql := `	
-		SELECT em.id,
-			em."time",
-			CASE WHEN em.id LIKE em.device_id || '/%'
-					THEN SUBSTRING(em.id FROM CHAR_LENGTH(em.device_id) + 2)
-			END AS n,
-			em.v, em.vb, em.unit
-		FROM (
-		SELECT DISTINCT id
-		FROM events_measurements
+
+	sql := `
+		SELECT id, "time", 
+		CASE WHEN id LIKE CONCAT(device_id, '/%')THEN
+			SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
+		ELSE
+			NULL
+		END AS n, v, vb, unit
+		FROM events_measurements_latest
 		WHERE device_id = @device_id
-			AND tenant = ANY(@tenants)
-			AND (v IS NOT NULL OR vb IS NOT NULL)
-		) ids
-		CROSS JOIN LATERAL (
-		SELECT em.*
-		FROM events_measurements em
-		WHERE em.device_id = @device_id
-			AND em.tenant = ANY(@tenants)
-			AND em.id = ids.id
-			AND (em.v IS NOT NULL OR em.vb IS NOT NULL)
-		ORDER BY em.time DESC
-		LIMIT 1
-		) em
-		ORDER BY em.id ASC;	
+		  AND tenant = ANY(@tenants);
 	`
 
 	log.Debug("FetchLatest", slog.String("sql", sql), slog.Any("args", args))

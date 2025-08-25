@@ -163,5 +163,77 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 		return err
 	}
 
+	_, err = c.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS events_measurements_latest (
+		device_id  	TEXT NOT NULL,
+		id  		TEXT NOT NULL,
+		tenant 		TEXT NOT NULL,
+		time 		TIMESTAMPTZ NOT NULL,
+		v 			NUMERIC NULL,
+		vb 			BOOLEAN NULL,			
+		vs 			TEXT NOT NULL DEFAULT '',			
+		urn		  	TEXT NOT NULL,
+		n 			TEXT NOT NULL,									
+		unit 		TEXT NOT NULL DEFAULT '',
+		location 	POINT NULL,
+		UNIQUE ("id"));`)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.Exec(ctx, `
+		CREATE INDEX IF NOT EXISTS idx_eml_device_tenant_cover
+		ON events_measurements_latest (device_id, tenant)
+		INCLUDE (id, "time", v, vb, unit, n);
+	`)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.Exec(ctx, `
+		CREATE OR REPLACE FUNCTION update_device_latest_state()
+		RETURNS TRIGGER AS $$
+		BEGIN
+    		IF NEW.v IS NOT NULL OR NEW.vb IS NOT NULL THEN
+				INSERT INTO events_measurements_latest AS dls (device_id, id, tenant, time, v, vb, vs, n, urn, unit, location)
+				VALUES (
+					NEW.device_id, 
+					NEW.id, 
+					NEW.tenant, 
+					NEW.time, 
+					NEW.v, 
+					NEW.vb, 
+					NEW.vs, 
+					NEW.n,
+					NEW.urn, 
+					NEW.unit,
+					NEW.location
+				)
+				ON CONFLICT (id) DO UPDATE
+				SET tenant 	= EXCLUDED.tenant,
+					time 	= EXCLUDED.time, 
+					v 		= EXCLUDED.v,
+					vb 		= EXCLUDED.vb,
+					vs 		= EXCLUDED.vs,
+					n 		= EXCLUDED.n,
+					urn 	= EXCLUDED.urn,
+					unit 	= EXCLUDED.unit,
+					location = EXCLUDED.location
+				WHERE dls.time < EXCLUDED.time;
+			END IF;
+			RETURN NEW;
+		END;
+		$$ LANGUAGE plpgsql;
+
+		DROP TRIGGER IF EXISTS trg_update_latest_state ON events_measurements;
+
+		CREATE TRIGGER trg_update_latest_state
+		AFTER INSERT ON events_measurements
+		FOR EACH ROW
+		EXECUTE FUNCTION update_device_latest_state();`)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
