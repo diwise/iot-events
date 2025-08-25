@@ -88,11 +88,22 @@ func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 
 		latest := r.URL.Query().Get("latest")
 		if latest == "true" {
-			result, err = m.FetchLatest(ctx, deviceID, allowedTenants)
-			if err != nil {
-				logger.Error("could not fetch latest measurements for device", "device_id", deviceID, "err", err)
-				w.WriteHeader(http.StatusInternalServerError)
-				return
+			idonly := r.URL.Query().Get("idonly") == "true"
+
+			if idonly {
+				result, err = m.FetchIDOnly(ctx, deviceID, allowedTenants)
+				if err != nil {
+					logger.Error("could not fetch id only for device", "device_id", deviceID, "err", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
+			} else {
+				result, err = m.FetchLatest(ctx, deviceID, allowedTenants)
+				if err != nil {
+					logger.Error("could not fetch latest measurements for device", "device_id", deviceID, "err", err)
+					w.WriteHeader(http.StatusInternalServerError)
+					return
+				}
 			}
 		} else {
 			result, err = m.Fetch(ctx, deviceID, messagecollector.ParseQuery(r.URL.Query()), allowedTenants)

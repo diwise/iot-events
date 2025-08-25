@@ -630,6 +630,55 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 	return val, nil
 }
 
+func (s storageImpl) FetchIDOnly(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+	if deviceID == "" {
+		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")
+	}
+
+	log := logging.GetFromContext(ctx)
+
+	args := pgx.NamedArgs{
+		"device_id": deviceID,
+		"tenants":   tenants,
+	}
+
+	sql := `
+		SELECT id
+		FROM events_measurements
+		WHERE device_id = @device_id
+		AND tenant = ANY(@tenants)
+		AND (v IS NOT NULL OR vb IS NOT NULL)
+		GROUP BY id
+		ORDER BY id;
+	`
+
+	log.Debug("FetchIDOnly", slog.String("sql", sql), slog.Any("args", args))
+
+	rows, err := s.conn.Query(ctx, sql, args)
+	if err != nil {
+		log.Debug("FetchIDOnly failed", slog.String("sql", sql), slog.Any("args", args))
+		return []messagecollector.Value{}, err
+	}
+	defer rows.Close()
+
+	var id string
+	var values []messagecollector.Value
+
+	_, err = pgx.ForEachRow(rows, []any{&id}, func() error {
+		_id := id
+		_n := strings.Replace(_id, fmt.Sprintf("%s/", deviceID), "", 1)
+
+		values = append(values, messagecollector.Value{ID: &_id, Name: &_n})
+
+		return nil
+	})
+	if err != nil {
+		return []messagecollector.Value{}, nil
+	}
+
+	return values, nil
+}
+
 func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
 	if deviceID == "" {
 		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")

@@ -27,6 +27,7 @@ type MeasurementRetriever interface {
 	QueryObject(ctx context.Context, deviceID, urn string, tenants []string) QueryResult
 	Fetch(ctx context.Context, deviceID string, q QueryParams, tenants []string) (map[string][]Value, error)
 	FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]Value, error)
+	FetchIDOnly(ctx context.Context, deviceID string, tenants []string) ([]Value, error)
 }
 
 type MessageCollector struct {

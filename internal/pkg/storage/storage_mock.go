@@ -22,6 +22,9 @@ var _ Storage = &StorageMock{}
 //			FetchFunc: func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
 //				panic("mock out the Fetch method")
 //			},
+//			FetchIDOnlyFunc: func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+//				panic("mock out the FetchIDOnly method")
+//			},
 //			FetchLatestFunc: func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
 //				panic("mock out the FetchLatest method")
 //			},
@@ -49,6 +52,9 @@ var _ Storage = &StorageMock{}
 type StorageMock struct {
 	// FetchFunc mocks the Fetch method.
 	FetchFunc func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error)
+
+	// FetchIDOnlyFunc mocks the FetchIDOnly method.
+	FetchIDOnlyFunc func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error)
 
 	// FetchLatestFunc mocks the FetchLatest method.
 	FetchLatestFunc func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error)
@@ -78,6 +84,15 @@ type StorageMock struct {
 			DeviceID string
 			// Q is the q argument value.
 			Q messagecollector.QueryParams
+			// Tenants is the tenants argument value.
+			Tenants []string
+		}
+		// FetchIDOnly holds details about calls to the FetchIDOnly method.
+		FetchIDOnly []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// DeviceID is the deviceID argument value.
+			DeviceID string
 			// Tenants is the tenants argument value.
 			Tenants []string
 		}
@@ -135,6 +150,7 @@ type StorageMock struct {
 		}
 	}
 	lockFetch       sync.RWMutex
+	lockFetchIDOnly sync.RWMutex
 	lockFetchLatest sync.RWMutex
 	lockQuery       sync.RWMutex
 	lockQueryDevice sync.RWMutex
@@ -184,6 +200,46 @@ func (mock *StorageMock) FetchCalls() []struct {
 	mock.lockFetch.RLock()
 	calls = mock.calls.Fetch
 	mock.lockFetch.RUnlock()
+	return calls
+}
+
+// FetchIDOnly calls FetchIDOnlyFunc.
+func (mock *StorageMock) FetchIDOnly(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+	if mock.FetchIDOnlyFunc == nil {
+		panic("StorageMock.FetchIDOnlyFunc: method is nil but Storage.FetchIDOnly was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		DeviceID string
+		Tenants  []string
+	}{
+		Ctx:      ctx,
+		DeviceID: deviceID,
+		Tenants:  tenants,
+	}
+	mock.lockFetchIDOnly.Lock()
+	mock.calls.FetchIDOnly = append(mock.calls.FetchIDOnly, callInfo)
+	mock.lockFetchIDOnly.Unlock()
+	return mock.FetchIDOnlyFunc(ctx, deviceID, tenants)
+}
+
+// FetchIDOnlyCalls gets all the calls that were made to FetchIDOnly.
+// Check the length with:
+//
+//	len(mockedStorage.FetchIDOnlyCalls())
+func (mock *StorageMock) FetchIDOnlyCalls() []struct {
+	Ctx      context.Context
+	DeviceID string
+	Tenants  []string
+} {
+	var calls []struct {
+		Ctx      context.Context
+		DeviceID string
+		Tenants  []string
+	}
+	mock.lockFetchIDOnly.RLock()
+	calls = mock.calls.FetchIDOnly
+	mock.lockFetchIDOnly.RUnlock()
 	return calls
 }
 
