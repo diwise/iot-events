@@ -640,19 +640,46 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 		"device_id": deviceID,
 		"tenants":   tenants,
 	}
-
-	sql := `SELECT DISTINCT on (id) id, "time",
- 			CASE WHEN id LIKE CONCAT(device_id, '/%')THEN 
- 				SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
- 			ELSE 
- 				NULL 
- 			END AS n,
- 			v, vb, unit
-			FROM events_measurements
-			WHERE device_id = @device_id
-				AND tenant=any(@tenants)
-  				AND ((v IS NOT NULL) OR (vb IS NOT NULL))
-			ORDER BY id ASC, "time" DESC;`
+	/*
+	   	sql := `SELECT DISTINCT on (id) id, "time",
+	    			CASE WHEN id LIKE CONCAT(device_id, '/%')THEN
+	    				SUBSTRING(id FROM CHAR_LENGTH(device_id) + 2)
+	    			ELSE
+	    				NULL
+	    			END AS n,
+	    			v, vb, unit
+	   			FROM events_measurements
+	   			WHERE device_id = @device_id
+	   				AND tenant=any(@tenants)
+	     				AND ((v IS NOT NULL) OR (vb IS NOT NULL))
+	   			ORDER BY id ASC, "time" DESC;`
+	*/
+	sql := `	
+		SELECT em.id,
+			em."time",
+			CASE WHEN em.id LIKE em.device_id || '/%'
+					THEN SUBSTRING(em.id FROM CHAR_LENGTH(em.device_id) + 2)
+			END AS n,
+			em.v, em.vb, em.unit
+		FROM (
+		SELECT DISTINCT id
+		FROM events_measurements
+		WHERE device_id = @device_id
+			AND tenant = ANY(@tenants)
+			AND (v IS NOT NULL OR vb IS NOT NULL)
+		) ids
+		CROSS JOIN LATERAL (
+		SELECT em.*
+		FROM events_measurements em
+		WHERE em.device_id = @device_id
+			AND em.tenant = ANY(@tenants)
+			AND em.id = ids.id
+			AND (em.v IS NOT NULL OR em.vb IS NOT NULL)
+		ORDER BY em.time DESC
+		LIMIT 1
+		) em
+		ORDER BY em.id ASC;	
+	`
 
 	log.Debug("FetchLatest", slog.String("sql", sql), slog.Any("args", args))
 
