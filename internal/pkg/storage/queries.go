@@ -292,9 +292,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 }
 
 func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-	id, idOk := q.GetString("id")
-	device_id, deviceIdOk := q.GetString("device_id")
-	urn, urnOk := q.GetString("urn")
+	log := logging.GetFromContext(ctx)
 
 	timeUnit, ok := q.GetString("timeUnit")
 	if !ok {
@@ -310,6 +308,10 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("%s", err.Error())
 	}
 
+	id, idOk := q.GetString("id")
+	device_id, deviceIdOk := q.GetString("device_id")
+	urn, urnOk := q.GetString("urn")
+
 	if !idOk && !deviceIdOk && !urnOk {
 		duration := endTimeAt.Sub(timeAt)
 		maxDuration := time.Duration(100 * 24 * time.Hour)
@@ -317,8 +319,6 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 			return errorResult("query contains no id, deviceID or URN and duration between timeAt and endTimeAt is too large (%0.f > %0.f hours)", duration.Hours(), maxDuration.Hours())
 		}
 	}
-
-	log := logging.GetFromContext(ctx)
 
 	args := pgx.NamedArgs{
 		"urn":       urn,
@@ -335,17 +335,18 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	sql := fmt.Sprintf("SELECT time_bucket('%s', time) as bucket, count(*) as n FROM events_measurements WHERE tenant=any(@tenants) ", t)
 
 	if idOk {
-		sql += "AND \"id\" = @id "
+		sql += `AND id = @id `
 		args["id"] = id
 	}
 
 	if deviceIdOk {
-		sql += "AND \"device_id\" = @device_id "
+		sql += `AND device_id = @device_id `
 		args["device_id"] = device_id
 	}
 
 	if urnOk {
-		sql += "AND \"urn\" = @urn "
+		sql += `AND urn = @urn `
+		args["urn"] = urn
 	}
 
 	if vb, ok := q.GetBool("vb"); ok {
@@ -357,9 +358,9 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 
 	sql += timeRelSql + " "
-	sql += "GROUP BY bucket ORDER BY bucket ASC;"
+	sql += "GROUP BY 1 ORDER BY 1 ASC;"
 
-	log.Debug("rateQuery", slog.String("sql", sql), slog.Any("args", args))
+	now := time.Now()
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -367,6 +368,8 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("%s", err.Error())
 	}
 	defer rows.Close()
+
+	log.Debug("rateQuery", slog.String("sql", sql), slog.Any("args", args), slog.Duration("duration", time.Duration(time.Since(now).Milliseconds())))
 
 	var ts time.Time
 	var n uint64
