@@ -588,7 +588,7 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 		ORDER BY id, "time" ASC;
 	`, timeRelSql, urnSql)
 
-	log.Debug("Fetch", slog.String("sql", sql), slog.Any("args", args))
+	now := time.Now()
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
@@ -596,6 +596,8 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 		return map[string][]messagecollector.Value{}, err
 	}
 	defer rows.Close()
+
+	log.Debug("Fetch", slog.String("sql", sql), slog.Any("args", args), slog.Duration("duration", time.Duration(time.Since(now).Milliseconds())))
 
 	var ts time.Time
 	var id, unit, n string
@@ -614,7 +616,7 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 
 		value := messagecollector.Value{
 			ID:        &_id,
-			Timestamp: _ts.UTC(),
+			Timestamp: _ts,
 			BoolValue: _vb,
 			Value:     _v,
 			Unit:      _unit,
@@ -653,14 +655,16 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 		  AND tenant = ANY(@tenants);
 	`
 
-	log.Debug("FetchLatest", slog.String("sql", sql), slog.Any("args", args))
+	now := time.Now()
 
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
-		log.Debug("Fetch failed", slog.String("sql", sql), slog.Any("args", args))
+		log.Debug("FetchLatest failed", slog.String("sql", sql), slog.Any("args", args))
 		return []messagecollector.Value{}, err
 	}
 	defer rows.Close()
+
+	log.Debug("FetchLatest", slog.String("sql", sql), slog.Any("args", args), slog.Duration("duration", time.Duration(time.Since(now).Milliseconds())))
 
 	var ts time.Time
 	var id, unit, n string
@@ -678,7 +682,7 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 
 		value := messagecollector.Value{
 			ID:        &_id,
-			Timestamp: _ts.UTC(),
+			Timestamp: _ts,
 			BoolValue: _vb,
 			Value:     _v,
 			Unit:      _unit,

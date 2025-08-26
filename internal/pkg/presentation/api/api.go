@@ -55,26 +55,34 @@ func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 	pattern := `^urn:oma:lwm2m.*$`
 	urnPatternRegex := regexp.MustCompile(pattern)
 
+	validateURN := func(urn string) bool {
+		return urnPatternRegex.MatchString(urn)
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		var err error
 		defer r.Body.Close()
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
+		spanName := "fetch-measurements"
 
-		ctx, span := tracer.Start(r.Context(), "query-device")
+		var result any
+		fetchLatest := r.URL.Query().Get("latest") == "true"
+
+		if fetchLatest {
+			spanName = "fetch-latest-measurements"
+		}
+
+		ctx, span := tracer.Start(r.Context(), spanName)
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
+		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
 		deviceID := r.PathValue("deviceID")
 
 		if deviceID == "" {
 			logger.Error("invalid url parameter", "err", err.Error())
 			w.WriteHeader(http.StatusBadRequest)
 			return
-		}
-
-		validateURN := func(urn string) bool {
-			return urnPatternRegex.MatchString(urn)
 		}
 
 		urn := r.URL.Query().Get("urn")
@@ -84,9 +92,6 @@ func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 			return
 		}
 
-		var result any
-
-		fetchLatest := r.URL.Query().Get("latest") == "true"
 		if fetchLatest {
 			result, err = m.FetchLatest(ctx, deviceID, allowedTenants)
 			if err != nil {
@@ -118,11 +123,11 @@ func NewQueryMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 		var err error
 		defer r.Body.Close()
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(r.Context())
-
 		ctx, span := tracer.Start(r.Context(), "query-measurements")
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
+
+		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
 
 		q, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
