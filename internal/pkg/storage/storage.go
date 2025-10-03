@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	collector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -15,19 +15,19 @@ import (
 
 //go:generate moq -rm -out storage_mock.go . Storage
 type Storage interface {
-	messagecollector.MeasurementRetriever
-	messagecollector.MeasurementStorer
+	collector.MeasurementRetriever
+	collector.MeasurementStorer
 }
 
 type storageImpl struct {
 	conn *pgxpool.Pool
 }
 
-func (s storageImpl) Save(ctx context.Context, m messagecollector.Measurement) error {
-	return s.SaveMany(ctx, []messagecollector.Measurement{m})
+func (s storageImpl) Save(ctx context.Context, m collector.Measurement) error {
+	return s.SaveMany(ctx, []collector.Measurement{m})
 }
 
-func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollector.Measurement) error {
+func (s storageImpl) SaveMany(ctx context.Context, measurements []collector.Measurement) error {
 	log := logging.GetFromContext(ctx)
 
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
@@ -38,7 +38,13 @@ func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollect
 				vb = COALESCE(EXCLUDED.vb, events_measurements.vb),
 				updated_on = CURRENT_TIMESTAMP;`
 
+	var traceID string = ""
+
 	spanCtx := trace.SpanContextFromContext(ctx)
+	if spanCtx.HasTraceID() {
+		traceID = spanCtx.TraceID().String()
+	}
+
 	batch := &pgx.Batch{}
 
 	for _, m := range measurements {
@@ -58,9 +64,8 @@ func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollect
 			"trace_id":  nil,
 		}
 
-		if spanCtx.HasTraceID() {
-			traceID := spanCtx.TraceID()
-			args["trace_id"] = traceID.String()
+		if traceID != "" {
+			args["trace_id"] = traceID
 		}
 
 		batch.Queue(sql, args)
