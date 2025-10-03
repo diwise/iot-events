@@ -1,10 +1,15 @@
 package messagecollector
 
 import (
+	"context"
+	"encoding/csv"
 	"fmt"
+	"io"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
 type QueryResult struct {
@@ -165,4 +170,73 @@ type AggrResult struct {
 	Minimum *float64 `json:"min,omitempty"`
 	Maximum *float64 `json:"max,omitempty"`
 	Count   *uint64  `json:"count,omitempty"`
+}
+
+type Metadata struct {
+	ID       string `json:"id"`
+	DeviceID string `json:"deviceID,omitempty"`
+	Key      string `json:"key,omitempty"`
+	Value    string `json:"value,omitempty"`
+}
+
+func LoadMetadata(ctx context.Context, f io.Reader) ([]Metadata, error) {
+	log := logging.GetFromContext(ctx)
+
+	metadata := []Metadata{}
+	r := csv.NewReader(f)
+	r.Comma = ';'
+	r.TrimLeadingSpace = true
+	r.FieldsPerRecord = -1
+
+	records, err := r.ReadAll()
+	if err != nil {
+		return nil, fmt.Errorf("could not read metadata csv: %w", err)
+	}
+
+	if len(records) < 1 {
+		return nil, fmt.Errorf("metadata csv is empty")
+	}
+
+	header := records[0]
+	colIndex := map[string]int{}
+
+	for i, col := range header {
+		colIndex[strings.ToLower(col)] = i
+	}
+
+	requiredCols := []string{"id", "key", "value"}
+
+	for _, col := range requiredCols {
+		if _, ok := colIndex[col]; !ok {
+			return nil, fmt.Errorf("metadata csv is missing required column: %s", col)
+		}
+	}
+
+	for i, record := range records[1:] {
+		if len(record) != len(header) {
+			log.Warn("skipping metadata record with wrong number of columns", "line", i+2)
+			continue
+		}
+
+		m := Metadata{
+			ID:    record[colIndex["id"]],
+			Key:   record[colIndex["key"]],
+			Value: record[colIndex["value"]],
+		}
+
+		if m.ID == "" || m.Key == "" || m.Value == "" {
+			log.Warn("skipping metadata record with empty required field", "line", i+2)
+			continue
+		}
+
+		parts := strings.Split(m.ID, "/")
+
+		if len(parts) > 1 {
+			m.DeviceID = parts[0]
+		}
+
+		metadata = append(metadata, m)
+	}
+
+	return metadata, nil
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	k8shandlers "github.com/diwise/service-chassis/pkg/infrastructure/net/http/handlers"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
 )
 
@@ -31,6 +32,7 @@ func defaultFlags() flagMap {
 
 		cloudeventsFile: "/opt/diwise/config/cloudevents.yaml",
 		policiesFile:    "/opt/diwise/config/authz.rego",
+		metadataFile:    "/opt/diwise/config/metadata.csv",
 
 		messengerTopic: "#",
 
@@ -53,46 +55,46 @@ func main() {
 	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
-	messenger, err := messaging.Initialize(
-		ctx, messaging.LoadConfiguration(ctx, serviceName, logger),
-	)
-	exitIf(err, logger, "failed to init messenger")
-
-	storage, err := storage.New(ctx, storage.NewConfig(
-		flags[dbHost], flags[dbPort], flags[dbName],
-		flags[dbUser], flags[dbPassword], flags[dbSSLMode]),
-	)
-	exitIf(err, logger, "failed to connect to storage")
-
-	cloudEventsConfig, err := os.Open(flags[cloudeventsFile])
+	cloudEventsConfigFile, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
+
+	cloudeventsConfig, err := cloudevents.LoadConfiguration(cloudEventsConfigFile)
+	exitIf(err, logger, "unable to read cloudevents config")
 
 	policies, err := os.Open(flags[policiesFile])
 	exitIf(err, logger, "unable to open opa policy file")
 
+	metadataConfig, err := os.Open(flags[metadataFile])
+	exitIf(err, logger, "unable to open metadata config file")
+
+	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
+	storageConfig := storage.NewConfig(flags[dbHost], flags[dbPort], flags[dbName], flags[dbUser], flags[dbPassword], flags[dbSSLMode])
+
 	cfg := &appConfig{
-		mediator:  mediator.New(logger),
-		messenger: messenger,
-		storage:   storage,
+		storageConfig:     storageConfig,
+		messengerConfig:   messengerConfig,
+		cloudeventsConfig: cloudeventsConfig,
 	}
 
-	runner, _ := initialize(ctx, flags, cfg, policies, cloudEventsConfig)
+	runner, _ := initialize(ctx, flags, cfg, policies, metadataConfig)
 
 	err = runner.Run(ctx)
 	exitIf(err, logger, "failed to start service runner")
 }
 
-func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.ReadCloser, cloudconfig io.ReadCloser) (servicerunner.Runner[appConfig], error) {
-	defer cloudconfig.Close()
+func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.ReadCloser, metadata io.ReadCloser) (servicerunner.Runner[appConfig], error) {
 	defer policies.Close()
+	defer metadata.Close()
 
-	cecfg, err := cloudevents.LoadConfiguration(cloudconfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load cloudevents config: %s", err.Error())
-	}
+	log := logging.GetFromContext(ctx)
 
-	cfg.ce = cloudevents.New(cecfg, cfg.mediator)
-	cfg.mc = messagecollector.New(cfg.mediator, cfg.storage)
+	var err error
+
+	var messenger messaging.MsgContext
+	var s storage.Storage
+	var ce cloudevents.CloudEvents
+	var m mediator.Mediator
+	var mc messagecollector.MessageCollector
 
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
@@ -105,26 +107,56 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
-				api.RegisterHandlers(ctx, serviceName, handler, cfg.mediator, cfg.storage, policies)
+				api.RegisterHandlers(ctx, serviceName, handler, m, s, policies)
 				return nil
 			}),
 		),
+		oninit(func(ctx context.Context, cfg *appConfig) error {
+			m = mediator.New(log)
+
+			s, err = storage.New(ctx, cfg.storageConfig)
+			if err != nil {
+				return err
+			}
+
+			messenger, err = messaging.Initialize(ctx, cfg.messengerConfig)
+			if err != nil {
+				return err
+			}
+
+			ce = cloudevents.New(cfg.cloudeventsConfig, m)
+
+			metadata, err := messagecollector.LoadMetadata(ctx, metadata)
+			if err != nil {
+				return fmt.Errorf("failed to load metadata: %w", err)
+			}
+
+			err = s.SeedMetadata(ctx, metadata)
+			if err != nil {
+				return err
+			}
+
+			mc = messagecollector.New(m, s)
+
+			return nil
+		}),
 		onstarting(func(ctx context.Context, svcCfg *appConfig) (err error) {
 
-			svcCfg.mediator.Start(ctx)
-			svcCfg.ce.Start(ctx)
-			svcCfg.mc.Start(ctx)
-			svcCfg.messenger.Start()
+			m.Start(ctx)
+			ce.Start(ctx)
+			mc.Start(ctx)
+			messenger.Start()
 
-			cfg.messenger.RegisterTopicMessageHandler(
+			messenger.RegisterTopicMessageHandler(
 				flags[messengerTopic],
-				handlers.NewTopicMessageHandler(cfg.messenger, cfg.mediator),
+				handlers.NewTopicMessageHandler(messenger, m),
 			)
 
 			return nil
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
-			// TODO: Proper cleanup
+			messenger.Close()
+
 			return nil
 		}),
 	)
@@ -137,6 +169,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	// Allow environment variables to override certain defaults
 	envOrDef := env.GetVariableOrDefault
 	flags[servicePort] = envOrDef(ctx, "SERVICE_PORT", flags[servicePort])
+	flags[controlPort] = envOrDef(ctx, "CONTROL_PORT", flags[controlPort])
+
 	flags[messengerTopic] = envOrDef(ctx, "RABBITMQ_TOPIC", flags[messengerTopic])
 
 	flags[dbHost] = envOrDef(ctx, "POSTGRES_HOST", flags[dbHost])
@@ -156,6 +190,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	// Allow command line arguments to override defaults and environment variables
 	flag.Func("cloudevents", "configuration file for cloud events", apply(cloudeventsFile))
 	flag.Func("policies", "an authorization policy file", apply(policiesFile))
+	flag.Func("metadata", "a CSV file with initial metadata", apply(metadataFile))
+
 	flag.Parse()
 
 	return ctx, flags

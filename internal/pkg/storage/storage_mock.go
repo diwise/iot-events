@@ -5,7 +5,7 @@ package storage
 
 import (
 	"context"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	collector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"sync"
 )
 
@@ -19,29 +19,29 @@ var _ Storage = &StorageMock{}
 //
 //		// make and configure a mocked Storage
 //		mockedStorage := &StorageMock{
-//			FetchFunc: func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+//			FetchFunc: func(ctx context.Context, deviceID string, q collector.QueryParams, tenants []string) (map[string][]collector.Value, error) {
 //				panic("mock out the Fetch method")
 //			},
-//			FetchIDOnlyFunc: func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
-//				panic("mock out the FetchIDOnly method")
-//			},
-//			FetchLatestFunc: func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+//			FetchLatestFunc: func(ctx context.Context, deviceID string, tenants []string) ([]collector.Value, error) {
 //				panic("mock out the FetchLatest method")
 //			},
-//			QueryFunc: func(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+//			QueryFunc: func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
 //				panic("mock out the Query method")
 //			},
-//			QueryDeviceFunc: func(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
+//			QueryDeviceFunc: func(ctx context.Context, deviceID string, tenants []string) collector.QueryResult {
 //				panic("mock out the QueryDevice method")
 //			},
-//			QueryObjectFunc: func(ctx context.Context, deviceID string, urn string, tenants []string) messagecollector.QueryResult {
+//			QueryObjectFunc: func(ctx context.Context, deviceID string, urn string, tenants []string) collector.QueryResult {
 //				panic("mock out the QueryObject method")
 //			},
-//			SaveFunc: func(ctx context.Context, m messagecollector.Measurement) error {
+//			SaveFunc: func(ctx context.Context, m collector.Measurement) error {
 //				panic("mock out the Save method")
 //			},
-//			SaveManyFunc: func(ctx context.Context, m []messagecollector.Measurement) error {
+//			SaveManyFunc: func(ctx context.Context, m []collector.Measurement) error {
 //				panic("mock out the SaveMany method")
+//			},
+//			SeedMetadataFunc: func(ctx context.Context, metadata []collector.Metadata) error {
+//				panic("mock out the SeedMetadata method")
 //			},
 //		}
 //
@@ -51,28 +51,28 @@ var _ Storage = &StorageMock{}
 //	}
 type StorageMock struct {
 	// FetchFunc mocks the Fetch method.
-	FetchFunc func(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error)
-
-	// FetchIDOnlyFunc mocks the FetchIDOnly method.
-	FetchIDOnlyFunc func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error)
+	FetchFunc func(ctx context.Context, deviceID string, q collector.QueryParams, tenants []string) (map[string][]collector.Value, error)
 
 	// FetchLatestFunc mocks the FetchLatest method.
-	FetchLatestFunc func(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error)
+	FetchLatestFunc func(ctx context.Context, deviceID string, tenants []string) ([]collector.Value, error)
 
 	// QueryFunc mocks the Query method.
-	QueryFunc func(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult
+	QueryFunc func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult
 
 	// QueryDeviceFunc mocks the QueryDevice method.
-	QueryDeviceFunc func(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult
+	QueryDeviceFunc func(ctx context.Context, deviceID string, tenants []string) collector.QueryResult
 
 	// QueryObjectFunc mocks the QueryObject method.
-	QueryObjectFunc func(ctx context.Context, deviceID string, urn string, tenants []string) messagecollector.QueryResult
+	QueryObjectFunc func(ctx context.Context, deviceID string, urn string, tenants []string) collector.QueryResult
 
 	// SaveFunc mocks the Save method.
-	SaveFunc func(ctx context.Context, m messagecollector.Measurement) error
+	SaveFunc func(ctx context.Context, m collector.Measurement) error
 
 	// SaveManyFunc mocks the SaveMany method.
-	SaveManyFunc func(ctx context.Context, m []messagecollector.Measurement) error
+	SaveManyFunc func(ctx context.Context, m []collector.Measurement) error
+
+	// SeedMetadataFunc mocks the SeedMetadata method.
+	SeedMetadataFunc func(ctx context.Context, metadata []collector.Metadata) error
 
 	// calls tracks calls to the methods.
 	calls struct {
@@ -83,16 +83,7 @@ type StorageMock struct {
 			// DeviceID is the deviceID argument value.
 			DeviceID string
 			// Q is the q argument value.
-			Q messagecollector.QueryParams
-			// Tenants is the tenants argument value.
-			Tenants []string
-		}
-		// FetchIDOnly holds details about calls to the FetchIDOnly method.
-		FetchIDOnly []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
-			// DeviceID is the deviceID argument value.
-			DeviceID string
+			Q collector.QueryParams
 			// Tenants is the tenants argument value.
 			Tenants []string
 		}
@@ -110,7 +101,7 @@ type StorageMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
-			Q messagecollector.QueryParams
+			Q collector.QueryParams
 			// Tenants is the tenants argument value.
 			Tenants []string
 		}
@@ -139,35 +130,42 @@ type StorageMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// M is the m argument value.
-			M messagecollector.Measurement
+			M collector.Measurement
 		}
 		// SaveMany holds details about calls to the SaveMany method.
 		SaveMany []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// M is the m argument value.
-			M []messagecollector.Measurement
+			M []collector.Measurement
+		}
+		// SeedMetadata holds details about calls to the SeedMetadata method.
+		SeedMetadata []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Metadata is the metadata argument value.
+			Metadata []collector.Metadata
 		}
 	}
-	lockFetch       sync.RWMutex
-	lockFetchIDOnly sync.RWMutex
-	lockFetchLatest sync.RWMutex
-	lockQuery       sync.RWMutex
-	lockQueryDevice sync.RWMutex
-	lockQueryObject sync.RWMutex
-	lockSave        sync.RWMutex
-	lockSaveMany    sync.RWMutex
+	lockFetch        sync.RWMutex
+	lockFetchLatest  sync.RWMutex
+	lockQuery        sync.RWMutex
+	lockQueryDevice  sync.RWMutex
+	lockQueryObject  sync.RWMutex
+	lockSave         sync.RWMutex
+	lockSaveMany     sync.RWMutex
+	lockSeedMetadata sync.RWMutex
 }
 
 // Fetch calls FetchFunc.
-func (mock *StorageMock) Fetch(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+func (mock *StorageMock) Fetch(ctx context.Context, deviceID string, q collector.QueryParams, tenants []string) (map[string][]collector.Value, error) {
 	if mock.FetchFunc == nil {
 		panic("StorageMock.FetchFunc: method is nil but Storage.Fetch was just called")
 	}
 	callInfo := struct {
 		Ctx      context.Context
 		DeviceID string
-		Q        messagecollector.QueryParams
+		Q        collector.QueryParams
 		Tenants  []string
 	}{
 		Ctx:      ctx,
@@ -188,13 +186,13 @@ func (mock *StorageMock) Fetch(ctx context.Context, deviceID string, q messageco
 func (mock *StorageMock) FetchCalls() []struct {
 	Ctx      context.Context
 	DeviceID string
-	Q        messagecollector.QueryParams
+	Q        collector.QueryParams
 	Tenants  []string
 } {
 	var calls []struct {
 		Ctx      context.Context
 		DeviceID string
-		Q        messagecollector.QueryParams
+		Q        collector.QueryParams
 		Tenants  []string
 	}
 	mock.lockFetch.RLock()
@@ -203,48 +201,8 @@ func (mock *StorageMock) FetchCalls() []struct {
 	return calls
 }
 
-// FetchIDOnly calls FetchIDOnlyFunc.
-func (mock *StorageMock) FetchIDOnly(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
-	if mock.FetchIDOnlyFunc == nil {
-		panic("StorageMock.FetchIDOnlyFunc: method is nil but Storage.FetchIDOnly was just called")
-	}
-	callInfo := struct {
-		Ctx      context.Context
-		DeviceID string
-		Tenants  []string
-	}{
-		Ctx:      ctx,
-		DeviceID: deviceID,
-		Tenants:  tenants,
-	}
-	mock.lockFetchIDOnly.Lock()
-	mock.calls.FetchIDOnly = append(mock.calls.FetchIDOnly, callInfo)
-	mock.lockFetchIDOnly.Unlock()
-	return mock.FetchIDOnlyFunc(ctx, deviceID, tenants)
-}
-
-// FetchIDOnlyCalls gets all the calls that were made to FetchIDOnly.
-// Check the length with:
-//
-//	len(mockedStorage.FetchIDOnlyCalls())
-func (mock *StorageMock) FetchIDOnlyCalls() []struct {
-	Ctx      context.Context
-	DeviceID string
-	Tenants  []string
-} {
-	var calls []struct {
-		Ctx      context.Context
-		DeviceID string
-		Tenants  []string
-	}
-	mock.lockFetchIDOnly.RLock()
-	calls = mock.calls.FetchIDOnly
-	mock.lockFetchIDOnly.RUnlock()
-	return calls
-}
-
 // FetchLatest calls FetchLatestFunc.
-func (mock *StorageMock) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+func (mock *StorageMock) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]collector.Value, error) {
 	if mock.FetchLatestFunc == nil {
 		panic("StorageMock.FetchLatestFunc: method is nil but Storage.FetchLatest was just called")
 	}
@@ -284,13 +242,13 @@ func (mock *StorageMock) FetchLatestCalls() []struct {
 }
 
 // Query calls QueryFunc.
-func (mock *StorageMock) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (mock *StorageMock) Query(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
 	if mock.QueryFunc == nil {
 		panic("StorageMock.QueryFunc: method is nil but Storage.Query was just called")
 	}
 	callInfo := struct {
 		Ctx     context.Context
-		Q       messagecollector.QueryParams
+		Q       collector.QueryParams
 		Tenants []string
 	}{
 		Ctx:     ctx,
@@ -309,12 +267,12 @@ func (mock *StorageMock) Query(ctx context.Context, q messagecollector.QueryPara
 //	len(mockedStorage.QueryCalls())
 func (mock *StorageMock) QueryCalls() []struct {
 	Ctx     context.Context
-	Q       messagecollector.QueryParams
+	Q       collector.QueryParams
 	Tenants []string
 } {
 	var calls []struct {
 		Ctx     context.Context
-		Q       messagecollector.QueryParams
+		Q       collector.QueryParams
 		Tenants []string
 	}
 	mock.lockQuery.RLock()
@@ -324,7 +282,7 @@ func (mock *StorageMock) QueryCalls() []struct {
 }
 
 // QueryDevice calls QueryDeviceFunc.
-func (mock *StorageMock) QueryDevice(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
+func (mock *StorageMock) QueryDevice(ctx context.Context, deviceID string, tenants []string) collector.QueryResult {
 	if mock.QueryDeviceFunc == nil {
 		panic("StorageMock.QueryDeviceFunc: method is nil but Storage.QueryDevice was just called")
 	}
@@ -364,7 +322,7 @@ func (mock *StorageMock) QueryDeviceCalls() []struct {
 }
 
 // QueryObject calls QueryObjectFunc.
-func (mock *StorageMock) QueryObject(ctx context.Context, deviceID string, urn string, tenants []string) messagecollector.QueryResult {
+func (mock *StorageMock) QueryObject(ctx context.Context, deviceID string, urn string, tenants []string) collector.QueryResult {
 	if mock.QueryObjectFunc == nil {
 		panic("StorageMock.QueryObjectFunc: method is nil but Storage.QueryObject was just called")
 	}
@@ -408,13 +366,13 @@ func (mock *StorageMock) QueryObjectCalls() []struct {
 }
 
 // Save calls SaveFunc.
-func (mock *StorageMock) Save(ctx context.Context, m messagecollector.Measurement) error {
+func (mock *StorageMock) Save(ctx context.Context, m collector.Measurement) error {
 	if mock.SaveFunc == nil {
 		panic("StorageMock.SaveFunc: method is nil but Storage.Save was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		M   messagecollector.Measurement
+		M   collector.Measurement
 	}{
 		Ctx: ctx,
 		M:   m,
@@ -431,11 +389,11 @@ func (mock *StorageMock) Save(ctx context.Context, m messagecollector.Measuremen
 //	len(mockedStorage.SaveCalls())
 func (mock *StorageMock) SaveCalls() []struct {
 	Ctx context.Context
-	M   messagecollector.Measurement
+	M   collector.Measurement
 } {
 	var calls []struct {
 		Ctx context.Context
-		M   messagecollector.Measurement
+		M   collector.Measurement
 	}
 	mock.lockSave.RLock()
 	calls = mock.calls.Save
@@ -444,13 +402,13 @@ func (mock *StorageMock) SaveCalls() []struct {
 }
 
 // SaveMany calls SaveManyFunc.
-func (mock *StorageMock) SaveMany(ctx context.Context, m []messagecollector.Measurement) error {
+func (mock *StorageMock) SaveMany(ctx context.Context, m []collector.Measurement) error {
 	if mock.SaveManyFunc == nil {
 		panic("StorageMock.SaveManyFunc: method is nil but Storage.SaveMany was just called")
 	}
 	callInfo := struct {
 		Ctx context.Context
-		M   []messagecollector.Measurement
+		M   []collector.Measurement
 	}{
 		Ctx: ctx,
 		M:   m,
@@ -467,14 +425,50 @@ func (mock *StorageMock) SaveMany(ctx context.Context, m []messagecollector.Meas
 //	len(mockedStorage.SaveManyCalls())
 func (mock *StorageMock) SaveManyCalls() []struct {
 	Ctx context.Context
-	M   []messagecollector.Measurement
+	M   []collector.Measurement
 } {
 	var calls []struct {
 		Ctx context.Context
-		M   []messagecollector.Measurement
+		M   []collector.Measurement
 	}
 	mock.lockSaveMany.RLock()
 	calls = mock.calls.SaveMany
 	mock.lockSaveMany.RUnlock()
+	return calls
+}
+
+// SeedMetadata calls SeedMetadataFunc.
+func (mock *StorageMock) SeedMetadata(ctx context.Context, metadata []collector.Metadata) error {
+	if mock.SeedMetadataFunc == nil {
+		panic("StorageMock.SeedMetadataFunc: method is nil but Storage.SeedMetadata was just called")
+	}
+	callInfo := struct {
+		Ctx      context.Context
+		Metadata []collector.Metadata
+	}{
+		Ctx:      ctx,
+		Metadata: metadata,
+	}
+	mock.lockSeedMetadata.Lock()
+	mock.calls.SeedMetadata = append(mock.calls.SeedMetadata, callInfo)
+	mock.lockSeedMetadata.Unlock()
+	return mock.SeedMetadataFunc(ctx, metadata)
+}
+
+// SeedMetadataCalls gets all the calls that were made to SeedMetadata.
+// Check the length with:
+//
+//	len(mockedStorage.SeedMetadataCalls())
+func (mock *StorageMock) SeedMetadataCalls() []struct {
+	Ctx      context.Context
+	Metadata []collector.Metadata
+} {
+	var calls []struct {
+		Ctx      context.Context
+		Metadata []collector.Metadata
+	}
+	mock.lockSeedMetadata.RLock()
+	calls = mock.calls.SeedMetadata
+	mock.lockSeedMetadata.RUnlock()
 	return calls
 }
