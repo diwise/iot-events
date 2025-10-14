@@ -28,6 +28,9 @@ var _ Storage = &StorageMock{}
 //			QueryFunc: func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
 //				panic("mock out the Query method")
 //			},
+//			Query2Func: func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
+//				panic("mock out the Query2 method")
+//			},
 //			QueryDeviceFunc: func(ctx context.Context, deviceID string, tenants []string) collector.QueryResult {
 //				panic("mock out the QueryDevice method")
 //			},
@@ -58,6 +61,9 @@ type StorageMock struct {
 
 	// QueryFunc mocks the Query method.
 	QueryFunc func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult
+
+	// Query2Func mocks the Query2 method.
+	Query2Func func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult
 
 	// QueryDeviceFunc mocks the QueryDevice method.
 	QueryDeviceFunc func(ctx context.Context, deviceID string, tenants []string) collector.QueryResult
@@ -98,6 +104,15 @@ type StorageMock struct {
 		}
 		// Query holds details about calls to the Query method.
 		Query []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
+			// Q is the q argument value.
+			Q collector.QueryParams
+			// Tenants is the tenants argument value.
+			Tenants []string
+		}
+		// Query2 holds details about calls to the Query2 method.
+		Query2 []struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 			// Q is the q argument value.
@@ -150,6 +165,7 @@ type StorageMock struct {
 	lockFetch        sync.RWMutex
 	lockFetchLatest  sync.RWMutex
 	lockQuery        sync.RWMutex
+	lockQuery2       sync.RWMutex
 	lockQueryDevice  sync.RWMutex
 	lockQueryObject  sync.RWMutex
 	lockSave         sync.RWMutex
@@ -278,6 +294,46 @@ func (mock *StorageMock) QueryCalls() []struct {
 	mock.lockQuery.RLock()
 	calls = mock.calls.Query
 	mock.lockQuery.RUnlock()
+	return calls
+}
+
+// Query2 calls Query2Func.
+func (mock *StorageMock) Query2(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
+	if mock.Query2Func == nil {
+		panic("StorageMock.Query2Func: method is nil but Storage.Query2 was just called")
+	}
+	callInfo := struct {
+		Ctx     context.Context
+		Q       collector.QueryParams
+		Tenants []string
+	}{
+		Ctx:     ctx,
+		Q:       q,
+		Tenants: tenants,
+	}
+	mock.lockQuery2.Lock()
+	mock.calls.Query2 = append(mock.calls.Query2, callInfo)
+	mock.lockQuery2.Unlock()
+	return mock.Query2Func(ctx, q, tenants)
+}
+
+// Query2Calls gets all the calls that were made to Query2.
+// Check the length with:
+//
+//	len(mockedStorage.Query2Calls())
+func (mock *StorageMock) Query2Calls() []struct {
+	Ctx     context.Context
+	Q       collector.QueryParams
+	Tenants []string
+} {
+	var calls []struct {
+		Ctx     context.Context
+		Q       collector.QueryParams
+		Tenants []string
+	}
+	mock.lockQuery2.RLock()
+	calls = mock.calls.Query2
+	mock.lockQuery2.RUnlock()
 	return calls
 }
 

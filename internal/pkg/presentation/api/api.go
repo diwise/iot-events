@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"strings"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/mediator"
@@ -36,19 +37,87 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 		return fmt.Errorf("failed to create api authenticator: %w", err)
 	}
 
-	const apiPrefix string = "/api/v0"
+	const apiPrefix0 string = "/api/v0"
+	const apiPrefix1 string = "/api/v1"
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /events", EventSource(mediator, log))
-	mux.HandleFunc("GET /measurements", NewQueryMeasurementsHandler(storage, log))
-	mux.HandleFunc("GET /measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
+	mux0 := http.NewServeMux()
+	mux0.HandleFunc("GET /events", EventSource(mediator, log))
+	mux0.HandleFunc("GET /measurements", NewQueryMeasurementsHandler(storage, log))
+	mux0.HandleFunc("GET /measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
 
-	routeGroup := http.StripPrefix(apiPrefix, mux)
-	rootMux.Handle("GET "+apiPrefix+"/", authenticator(routeGroup))
+	v0 := http.StripPrefix(apiPrefix0, mux0)
+	rootMux.Handle("GET "+apiPrefix0+"/", authenticator(v0))
+
+	mux1 := http.NewServeMux()
+	mux1.HandleFunc("GET /measurements", NewQueryMeasurementsHandler1(storage, log))
+
+	v1 := http.StripPrefix(apiPrefix1, mux1)
+	rootMux.Handle("GET "+apiPrefix1+"/", authenticator(v1))
 
 	KeepAlive(ctx, mediator)
 
 	return nil
+}
+
+func NewQueryMeasurementsHandler1(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var err error
+		defer r.Body.Close()
+
+		ctx, span := tracer.Start(r.Context(), "query-measurements")
+		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
+		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
+
+		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
+		if len(allowedTenants) == 0 {
+			logger.Error("no allowed tenants in context")
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+
+		q, err := url.ParseQuery(r.URL.RawQuery)
+		if err != nil {
+			logger.Error("invalid query parameter", "err", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		qp := messagecollector.ParseQuery(q)
+		err = qp.ValidateParams(func(key string) bool {
+			if strings.HasPrefix(key, "metadata[") && strings.HasSuffix(key, "]") {
+				return true
+			}
+
+			switch key {
+			case "id", "urn", "device_id", "timerel", "timeat", "endtimeat", "limit", "offset", "name", "latest":
+				return true
+			default:
+				return false
+			}
+		})
+		if err != nil {
+			logger.Error("invalid query parameter", "err", err.Error())
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+
+		result := m.Query2(ctx, qp, allowedTenants)
+		if result.Error != nil {
+			if !errors.Is(result.Error, messagecollector.ErrNotFound) {
+				logger.Error("could not query measurements", "err", result.Error.Error())
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+
+			result.Data = []any{}
+		}
+
+		resp := NewApiResponse(r, result.Data, result.Count, result.TotalCount, result.Offset, result.Limit)
+
+		w.Header().Add("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		w.Write(resp.Byte())
+	}
 }
 
 func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *slog.Logger) http.HandlerFunc {

@@ -55,16 +55,16 @@ func main() {
 	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
-	cloudEventsConfigFile, err := os.Open(flags[cloudeventsFile])
+	cf, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
 
-	cloudeventsConfig, err := cloudevents.LoadConfiguration(cloudEventsConfigFile)
+	cloudeventsConfig, err := cloudevents.LoadConfiguration(cf)
 	exitIf(err, logger, "unable to read cloudevents config")
 
 	policies, err := os.Open(flags[policiesFile])
 	exitIf(err, logger, "unable to open opa policy file")
 
-	metadataConfig, err := os.Open(flags[metadataFile])
+	mcf, err := os.Open(flags[metadataFile])
 	exitIf(err, logger, "unable to open metadata config file")
 
 	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
@@ -76,7 +76,7 @@ func main() {
 		cloudeventsConfig: cloudeventsConfig,
 	}
 
-	runner, _ := initialize(ctx, flags, cfg, policies, metadataConfig)
+	runner, _ := initialize(ctx, flags, cfg, policies, mcf)
 
 	err = runner.Run(ctx)
 	exitIf(err, logger, "failed to start service runner")

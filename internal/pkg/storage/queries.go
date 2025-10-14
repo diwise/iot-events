@@ -19,6 +19,130 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
+func (s storageImpl) Query2(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+	log := logging.GetFromContext(ctx)
+
+	if len(tenants) == 0 {
+		return errorResult("no tenants provided")
+	}
+
+	qa, err := q.NamedArgs()
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+
+	qa.Args["tenants"] = tenants
+
+	latestSql := ""
+	tableName := "events_measurements"
+
+	if latest, ok := q.GetBool("latest"); ok && latest {
+		latestSql = `
+		,latest_measurements AS (
+		SELECT DISTINCT ON (e.id)
+			e.time,
+			e.id,
+			e.device_id,
+			e.urn,
+			e.location,
+			e.n,
+			e.v,
+			e.vs,
+			e.vb,
+			e.unit,
+			e.tenant
+		FROM events_measurements e
+		ORDER BY e.id, e.time DESC
+		)`
+		tableName = "latest_measurements"
+	}
+
+	sql := fmt.Sprintf(`
+		WITH metadata AS (
+			SELECT m.id, array_agg(ARRAY[m.key, m.value]) AS meta
+			FROM events_measurements_metadata m
+			GROUP BY m.id
+		)
+		
+		%s
+
+		SELECT e.time, e.id, e.device_id, e.urn, e.location, e.n, e.v, e.vs, e.vb, e.unit, e.tenant, m.meta, COUNT(*) OVER() AS total_count
+		FROM %s e
+		LEFT JOIN metadata m ON e.id = m.id 
+		WHERE tenant=ANY(@tenants) %s %s
+		ORDER BY e.id ASC, e.time DESC`, latestSql, tableName, qa.Where, qa.OffsetLimit)
+
+	log.Debug("Query2", slog.String("sql", sql), slog.Any("args", qa.Args))
+
+	rows, err := s.conn.Query(ctx, sql, qa.Args)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer rows.Close()
+
+	var ts time.Time
+	var id, device_id, urn, n, vs, unit, tenant string
+	var meta [][]string
+	var location pgtype.Point
+	var v *float64
+	var vb *bool
+	var total_count uint64
+
+	ms := []messagecollector.Measurement{}
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &meta, &total_count}, func() error {
+		m := messagecollector.Measurement{}
+
+		m.ID = id
+		m.Timestamp = ts.UTC()
+		m.DeviceID = device_id
+		m.Urn = urn
+		m.Name = n
+		m.Value = v
+		m.BoolValue = vb
+		m.StringValue = vs
+		m.Unit = unit
+		m.Tenant = tenant
+
+		if location.P.Y > 0.0 && location.P.X > 0.0 {
+			m.Lat = location.P.Y
+			m.Lon = location.P.X
+		}
+
+		for _, kv := range meta {
+			if len(kv) == 2 {
+				md := messagecollector.Metadata{
+					Key:   kv[0],
+					Value: kv[1],
+				}
+				m.Metadata = append(m.Metadata, md)
+			}
+		}
+
+		ms = append(ms, m)
+
+		return nil
+	})
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+
+	if qa.Limit == 0 {
+		qa.Limit = uint64(len(ms))
+	}
+
+	result := messagecollector.QueryResult{
+		Data:       ms,
+		Count:      uint64(len(ms)),
+		Offset:     qa.Offset,
+		Limit:      qa.Limit,
+		TotalCount: total_count,
+		Error:      nil,
+	}
+
+	return result
+}
+
 func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
 	_, ok := q.GetString("aggrMethods")
 	if ok {

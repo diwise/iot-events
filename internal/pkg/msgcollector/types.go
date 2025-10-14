@@ -5,11 +5,14 @@ import (
 	"encoding/csv"
 	"fmt"
 	"io"
+	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
+	"github.com/jackc/pgx/v5"
 )
 
 type QueryResult struct {
@@ -51,6 +54,132 @@ func ParseQuery(q map[string][]string) QueryParams {
 	}
 
 	return m
+}
+
+type QueryArgs struct {
+	Where       string
+	Args        pgx.NamedArgs
+	Offset      uint64
+	Limit       uint64
+	OffsetLimit string
+}
+
+func (q QueryParams) NamedArgs() (QueryArgs, error) {
+	qa := QueryArgs{}
+
+	n := pgx.NamedArgs{}
+	s := []string{}
+
+	for k, v := range q {
+		if len(v) == 0 {
+			continue
+		}
+
+		switch k {
+		case "timerel":
+			if !slices.Contains([]string{"after", "before", "between"}, v[0]) {
+				return qa, fmt.Errorf("invalid timerel value: %s", v[0])
+			}
+
+			var timeAt, endTimeAt time.Time
+			var ok bool
+
+			timeAt, ok = q.GetTime("timeAt")
+			if !ok {
+				return qa, fmt.Errorf("invalid timeAt value: %s", v[0])
+			}
+			if v[0] == "between" {
+				endTimeAt, ok = q.GetTime("endTimeAt")
+				if !ok {
+					return qa, fmt.Errorf("parameter endTimeAt is invalid")
+				}
+			} else {
+				endTimeAt = time.Now().UTC()
+			}
+
+			switch v[0] {
+			case "after":
+				s = append(s, "time >= @timeAt")
+				n["timeAt"] = timeAt
+			case "before":
+				s = append(s, "time <= @timeAt")
+				n["timeAt"] = timeAt
+			case "between":
+				s = append(s, "time BETWEEN @timeAt AND @endTimeAt")
+				n["timeAt"] = timeAt
+				n["endTimeAt"] = endTimeAt
+			default:
+				return QueryArgs{}, fmt.Errorf("invalid timerel value: %s", v[0])
+			}
+		case "timeat", "endtimeat", "latest":
+		case "limit":
+			i, err := strconv.Atoi(v[0])
+			if err != nil {
+				return qa, fmt.Errorf("invalid limit value: %s", v[0])
+			}
+			qa.Limit = uint64(i)
+			n["limit"] = qa.Limit
+		case "offset":
+			i, err := strconv.Atoi(v[0])
+			if err != nil {
+				return qa, fmt.Errorf("invalid offset value: %s", v[0])
+			}
+			qa.Offset = uint64(i)
+			n["offset"] = qa.Offset
+		case "name":
+			s = append(s, "e.n=@name")
+			n["name"] = v[0]
+		default:
+			if strings.HasPrefix(k, "metadata[") && strings.HasSuffix(k, "]") {
+				re := regexp.MustCompile(`^metadata\[(.+)\]$`)
+				matches := re.FindStringSubmatch(k)
+				if len(matches) != 2 {
+					return QueryArgs{}, fmt.Errorf("invalid metadata query parameter: %s", k)
+				}
+				metaKey := matches[1]
+				w := fmt.Sprintf(`EXISTS (SELECT 1 FROM events_measurements_metadata mm WHERE mm.id = e.id AND mm.key=@meta_key_%s `, metaKey)
+				if len(v) > 0 && strings.TrimSpace(v[0]) != "" {
+					w += fmt.Sprintf("AND mm.value=@meta_value_%s ", metaKey)
+					n["meta_value_"+metaKey] = strings.TrimSpace(v[0])
+				}
+				w += ")"
+				s = append(s, w)
+
+				n["meta_key_"+metaKey] = metaKey
+
+				continue
+			}
+
+			if len(v) > 1 {
+				s = append(s, fmt.Sprintf("e.%s=ANY(@%s)", k, k))
+				n["@"+k] = v
+				continue
+			}
+
+			s = append(s, fmt.Sprintf("e.%s=@%s", k, k))
+			n[k] = v[0]
+		}
+	}
+
+	qa.Where = fmt.Sprintf("AND %s", strings.Join(s, " AND "))
+	qa.Args = n
+
+	if qa.Limit > 0 {
+		qa.OffsetLimit = fmt.Sprintf("OFFSET %d LIMIT %d", qa.Offset, qa.Limit)
+	} else if qa.Offset > 0 {
+		qa.OffsetLimit = fmt.Sprintf("OFFSET %d", qa.Offset)
+	}
+
+	return qa, nil
+}
+
+func (q QueryParams) ValidateParams(fn func(string) bool) error {
+	for k := range q {
+		if !fn(k) {
+			return fmt.Errorf("invalid query parameter: %s", k)
+		}
+	}
+	return nil
 }
 
 func (q QueryParams) GetString(key string) (string, bool) {
@@ -102,6 +231,7 @@ func (q QueryParams) GetTime(key string) (time.Time, bool) {
 	if err != nil {
 		return time.Time{}, false
 	}
+
 	return t.UTC(), true
 }
 
@@ -125,18 +255,19 @@ func NewMeasurement(ts time.Time, id, deviceID, name, urn, tenant string) Measur
 }
 
 type Measurement struct {
-	DeviceID    string    `json:"deviceID"`
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	Tenant      string    `json:"tenant"`
-	Timestamp   time.Time `json:"timestamp"`
-	Urn         string    `json:"urn"`
-	BoolValue   *bool     `json:"vb,omitempty"`
-	Lat         float64   `json:"lat"`
-	Lon         float64   `json:"lon"`
-	StringValue string    `json:"vs,omitempty"`
-	Unit        string    `json:"unit,omitempty"`
-	Value       *float64  `json:"v,omitempty"`
+	DeviceID    string     `json:"deviceID"`
+	ID          string     `json:"id"`
+	Name        string     `json:"name"`
+	Tenant      string     `json:"tenant"`
+	Timestamp   time.Time  `json:"timestamp"`
+	Urn         string     `json:"urn"`
+	BoolValue   *bool      `json:"vb,omitempty"`
+	Lat         float64    `json:"lat"`
+	Lon         float64    `json:"lon"`
+	StringValue string     `json:"vs,omitempty"`
+	Unit        string     `json:"unit,omitempty"`
+	Value       *float64   `json:"v,omitempty"`
+	Metadata    []Metadata `json:"metadata,omitempty"`
 }
 
 type MeasurementResult struct {
@@ -173,7 +304,7 @@ type AggrResult struct {
 }
 
 type Metadata struct {
-	ID       string `json:"id"`
+	ID       string `json:"id,omitempty"`
 	DeviceID string `json:"deviceID,omitempty"`
 	Key      string `json:"key,omitempty"`
 	Value    string `json:"value,omitempty"`
