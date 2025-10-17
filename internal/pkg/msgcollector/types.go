@@ -161,7 +161,10 @@ func (q QueryParams) NamedArgs() (QueryArgs, error) {
 		}
 	}
 
-	qa.Where = fmt.Sprintf("AND %s", strings.Join(s, " AND "))
+	if len(s) > 0 {
+		qa.Where = fmt.Sprintf("AND %s", strings.Join(s, " AND "))
+	}
+
 	qa.Args = n
 
 	if qa.Limit > 0 {

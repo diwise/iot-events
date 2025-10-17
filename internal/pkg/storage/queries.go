@@ -33,28 +33,10 @@ func (s storageImpl) Query2(ctx context.Context, q messagecollector.QueryParams,
 
 	qa.Args["tenants"] = tenants
 
-	latestSql := ""
 	tableName := "events_measurements"
 
 	if latest, ok := q.GetBool("latest"); ok && latest {
-		latestSql = `
-		,latest_measurements AS (
-		SELECT DISTINCT ON (e.id)
-			e.time,
-			e.id,
-			e.device_id,
-			e.urn,
-			e.location,
-			e.n,
-			e.v,
-			e.vs,
-			e.vb,
-			e.unit,
-			e.tenant
-		FROM events_measurements e
-		ORDER BY e.id, e.time DESC
-		)`
-		tableName = "latest_measurements"
+		tableName = "events_measurements_latest"
 	}
 
 	sql := fmt.Sprintf(`
@@ -64,13 +46,11 @@ func (s storageImpl) Query2(ctx context.Context, q messagecollector.QueryParams,
 			GROUP BY m.id
 		)
 		
-		%s
-
 		SELECT e.time, e.id, e.device_id, e.urn, e.location, e.n, e.v, e.vs, e.vb, e.unit, e.tenant, m.meta, COUNT(*) OVER() AS total_count
 		FROM %s e
 		LEFT JOIN metadata m ON e.id = m.id 
 		WHERE tenant=ANY(@tenants) %s %s
-		ORDER BY e.id ASC, e.time DESC`, latestSql, tableName, qa.Where, qa.OffsetLimit)
+		ORDER BY e.id ASC, e.time DESC`, tableName, qa.Where, qa.OffsetLimit)
 
 	log.Debug("Query2", slog.String("sql", sql), slog.Any("args", qa.Args))
 
