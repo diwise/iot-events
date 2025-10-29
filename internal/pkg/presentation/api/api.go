@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
+	messagecollector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
@@ -29,8 +29,6 @@ var tracer = otel.Tracer("iot-events/api")
 
 func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.ServeMux, mediator mediator.Mediator, storage storage.Storage, policies io.Reader) error {
 	log := logging.GetFromContext(ctx)
-
-	//r.Use(otelchi.Middleware(serviceName, otelchi.WithChiRoutes(r)))
 
 	authenticator, err := auth.NewAuthenticator(ctx, policies)
 	if err != nil {
@@ -311,7 +309,7 @@ func KeepAlive(ctx context.Context, m mediator.Mediator) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				m.Publish(ctx, msg)
+				m.Publish(msg)
 			}
 		}
 	}()

@@ -5,7 +5,8 @@ import (
 	"errors"
 	"log/slog"
 
-	collector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	"github.com/diwise/iot-events/internal/pkg/measurements"
+	collector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -16,8 +17,8 @@ import (
 //go:generate moq -rm -out storage_mock.go . Storage
 type Storage interface {
 	SeedMetadata(ctx context.Context, metadata []collector.Metadata) error
-	collector.MeasurementRetriever
-	collector.MeasurementStorer
+	measurements.MeasurementRetriever
+	measurements.MeasurementStorer
 }
 
 type storageImpl struct {
@@ -35,12 +36,12 @@ func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Meta
 
 	batch := &pgx.Batch{}
 
-	for _, m := range metadata {	
+	for _, m := range metadata {
 		args := pgx.NamedArgs{
 			"id":        m.ID,
 			"device_id": m.DeviceID,
 			"key":       m.Key,
-			"value":     m.Value,			
+			"value":     m.Value,
 		}
 
 		batch.Queue(sql, args)
@@ -62,10 +63,10 @@ func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Meta
 }
 
 func (s storageImpl) Save(ctx context.Context, m collector.Measurement) error {
-	return s.SaveMany(ctx, []collector.Measurement{m})
+	return s.SaveAll(ctx, []collector.Measurement{m})
 }
 
-func (s storageImpl) SaveMany(ctx context.Context, measurements []collector.Measurement) error {
+func (s storageImpl) SaveAll(ctx context.Context, measurements []collector.Measurement) error {
 	log := logging.GetFromContext(ctx)
 
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)

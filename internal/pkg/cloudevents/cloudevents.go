@@ -15,10 +15,13 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"golang.org/x/sys/unix"
 
-	cloud "github.com/cloudevents/sdk-go/v2"
+	otelo11y "github.com/cloudevents/sdk-go/observability/opentelemetry/v2/client"
+	cloudevents "github.com/cloudevents/sdk-go/v2"
+	"github.com/cloudevents/sdk-go/v2/client"
+	cehttp "github.com/cloudevents/sdk-go/v2/protocol/http"
 )
 
-type CloudEventSenderFunc = func(e eventInfo) error
+type CloudEventSenderFunc = func(ctx context.Context, e eventInfo) error
 
 var ErrCloudEventClientError = fmt.Errorf("could not create cloud event client")
 var ErrMessageBadFormat = fmt.Errorf("could not set data")
@@ -37,8 +40,10 @@ func New(cfg *Config, m mediator.Mediator) CloudEvents {
 }
 
 func (c CloudEvents) Start(ctx context.Context) {
-	for i, s := range c.config.Subscribers {
+	ch := make(chan string)
+	subscribers := map[string]*ceSubscriberImpl{}
 
+	for i, s := range c.config.Subscribers {
 		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
 
 		var idPatterns []string
@@ -56,12 +61,22 @@ func (c CloudEvents) Start(ctx context.Context) {
 			idPatterns:  idPatterns,
 			source:      s.Source,
 			eventType:   s.EventType,
+			kill:        ch,
 		}
 
 		c.m.Register(subscriber)
+		subscribers[subscriber.id] = subscriber
 
-		go subscriber.run(ctx, c.m, cloudEventSenderFunc)
+		go subscriber.run(ctx, cloudEventSenderFunc)
 	}
+
+	go func() {
+		for s := range ch {
+			if sub, ok := subscribers[s]; ok {
+				c.m.Unregister(sub)
+			}
+		}
+	}()
 }
 
 type ceSubscriberImpl struct {
@@ -74,6 +89,8 @@ type ceSubscriberImpl struct {
 	tenants     []string
 	source      string
 	eventType   string
+	retry       int
+	kill        chan string
 }
 
 func (s *ceSubscriberImpl) ID() string {
@@ -95,11 +112,7 @@ func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
 	return true
 }
 
-func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSenderFunc CloudEventSenderFunc) {
-	defer func() {
-		m.Unregister(s)
-	}()
-
+func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSenderFunc) {
 	contains := func(arr []string, str string) bool {
 		for _, s := range arr {
 			if strings.EqualFold(s, str) {
@@ -134,37 +147,40 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 		select {
 		case <-ctx.Done():
 			s.done <- true
+
 		case b := <-s.done:
 			log.Debug(fmt.Sprintf("Done! %t", b))
+			s.kill <- s.id
 			return
-		case msg := <-s.inbox:
-			mLog := logging.GetFromContext(msg.Context())
 
+		case msg := <-s.inbox:
 			if !contains(s.tenants, msg.Tenant()) {
 				break
 			}
 
+			logger := logging.GetFromContext(msg.Context())
 			messageBody := messageBody{}
+
 			err := json.Unmarshal(msg.Data(), &messageBody)
 			if err != nil {
-				mLog.Error("could not unmarshal message body", "err", err.Error())
+				logger.Error("could not unmarshal message body", "err", err.Error())
 				break
 			}
 
 			id := getIDFromMessage(messageBody)
 
 			if id == "" {
-				mLog.Debug("message body missing id property", slog.String("message_type", msg.Type()))
+				logger.Debug("message body missing id property", slog.String("message_type", msg.Type()))
+				break
+			}
+
+			if !matchIfNotEmpty(s.idPatterns, id) {
 				break
 			}
 
 			timestamp := time.Now().UTC()
 			if messageBody.Timestamp != nil {
 				timestamp = *messageBody.Timestamp
-			}
-
-			if !matchIfNotEmpty(s.idPatterns, id) {
-				break
 			}
 
 			ei := eventInfo{
@@ -176,16 +192,22 @@ func (s *ceSubscriberImpl) run(ctx context.Context, m mediator.Mediator, eventSe
 				data:      msg.Data(),
 			}
 
-			err = eventSenderFunc(ei)
-
+			err = eventSenderFunc(ctx, ei)
 			if err != nil {
-				mLog.Error("failed to send event", "err", err.Error())
+				logger.Error("failed to send event", "err", err.Error())
 				if errors.Is(err, ErrCloudEventClientError) {
-					s.done <- true
+					s.retry++
 				}
 				if errors.Is(err, ErrConnRefused) {
-					s.done <- true
+					s.retry++
 				}
+			} else {
+				s.retry = 0
+			}
+
+			if s.retry >= 10 {
+				logger.Error(fmt.Sprintf("%s has failed to send event %d times, giving up", s.id, s.retry))
+				s.done <- true
 			}
 		}
 	}
@@ -217,27 +239,29 @@ func getIDFromMessage(m messageBody) string {
 	return ""
 }
 
-func cloudEventSenderFunc(evt eventInfo) error {
-	c, err := cloud.NewClientHTTP()
+func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
+	//c, err := cloudevents.NewClientHTTP()
+	c, err := otelo11y.NewClientHTTP([]cehttp.Option{}, []client.Option{})
 	if err != nil {
 		return ErrCloudEventClientError
 	}
 
 	id := fmt.Sprintf("%s:%d", evt.id, evt.timestamp.Unix())
 
-	event := cloud.NewEvent()
+	event := cloudevents.NewEvent()
 	event.SetID(id)
 	event.SetTime(evt.timestamp)
 	event.SetSource(evt.source)
 	event.SetType(evt.eventType)
-	err = event.SetData(cloud.ApplicationJSON, evt.data)
+	err = event.SetData(cloudevents.ApplicationJSON, evt.data)
 	if err != nil {
 		return ErrMessageBadFormat
 	}
 
-	ctx := cloud.ContextWithTarget(context.Background(), evt.endpoint)
+	ctx = cloudevents.ContextWithTarget(ctx, evt.endpoint)
+
 	result := c.Send(ctx, event)
-	if cloud.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
+	if cloudevents.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
 		return ErrConnRefused
 	}
 

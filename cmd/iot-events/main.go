@@ -9,10 +9,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/diwise/iot-events/internal/pkg/application"
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
-	"github.com/diwise/iot-events/internal/pkg/handlers"
+	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -20,7 +20,6 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	k8shandlers "github.com/diwise/service-chassis/pkg/infrastructure/net/http/handlers"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
-	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
 )
 
@@ -48,7 +47,6 @@ func defaultFlags() flagMap {
 const serviceName string = "iot-events"
 
 func main() {
-
 	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
 
 	serviceVersion := buildinfo.SourceVersion()
@@ -59,7 +57,7 @@ func main() {
 	exitIf(err, logger, "unable to open cloudevents config file")
 
 	cloudeventsConfig, err := cloudevents.LoadConfiguration(cf)
-	exitIf(err, logger, "unable to read cloudevents config")
+	exitIf(err, logger, "unable to load cloudevents config")
 
 	policies, err := os.Open(flags[policiesFile])
 	exitIf(err, logger, "unable to open opa policy file")
@@ -82,11 +80,9 @@ func main() {
 	exitIf(err, logger, "failed to start service runner")
 }
 
-func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.ReadCloser, metadata io.ReadCloser) (servicerunner.Runner[appConfig], error) {
-	defer policies.Close()
-	defer metadata.Close()
-
-	log := logging.GetFromContext(ctx)
+func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile io.ReadCloser, metadataFile io.ReadCloser) (servicerunner.Runner[appConfig], error) {
+	defer policiesFile.Close()
+	defer metadataFile.Close()
 
 	var err error
 
@@ -94,7 +90,6 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 	var s storage.Storage
 	var ce cloudevents.CloudEvents
 	var m mediator.Mediator
-	var mc messagecollector.MessageCollector
 
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
@@ -107,36 +102,34 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
-				api.RegisterHandlers(ctx, serviceName, handler, m, s, policies)
+				api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
 				return nil
 			}),
 		),
 		oninit(func(ctx context.Context, cfg *appConfig) error {
-			m = mediator.New(log)
+			m = mediator.New(ctx)
 
 			s, err = storage.New(ctx, cfg.storageConfig)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not create storage %w", err)
 			}
 
 			messenger, err = messaging.Initialize(ctx, cfg.messengerConfig)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not initialize messenger %w", err)
 			}
 
 			ce = cloudevents.New(cfg.cloudeventsConfig, m)
 
-			metadata, err := messagecollector.LoadMetadata(ctx, metadata)
+			metadata, err := measurements.LoadMetadata(ctx, metadataFile)
 			if err != nil {
 				return fmt.Errorf("failed to load metadata: %w", err)
 			}
 
 			err = s.SeedMetadata(ctx, metadata)
 			if err != nil {
-				return err
+				return fmt.Errorf("could not seed metadata %w", err)
 			}
-
-			mc = messagecollector.New(m, s)
 
 			return nil
 		}),
@@ -144,13 +137,10 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 
 			m.Start(ctx)
 			ce.Start(ctx)
-			mc.Start(ctx)
 			messenger.Start()
 
-			messenger.RegisterTopicMessageHandler(
-				flags[messengerTopic],
-				handlers.NewTopicMessageHandler(messenger, m),
-			)
+			messenger.RegisterTopicMessageHandler(flags[messengerTopic], application.NewMessageHandler(m))
+			messenger.RegisterTopicMessageHandler("message.accepted", measurements.NewMessageAcceptedHandler(s))
 
 			return nil
 		}),

@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	messagecollector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
@@ -26,7 +26,7 @@ func (s storageImpl) Query2(ctx context.Context, q messagecollector.QueryParams,
 		return errorResult("no tenants provided")
 	}
 
-	qa, err := q.NamedArgs()
+	qa, err := q.Parse()
 	if err != nil {
 		return errorResult("%s", err.Error())
 	}

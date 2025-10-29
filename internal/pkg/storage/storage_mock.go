@@ -5,8 +5,9 @@ package storage
 
 import (
 	"context"
-	collector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"sync"
+
+	collector "github.com/diwise/iot-events/internal/pkg/measurements"
 )
 
 // Ensure, that StorageMock does implement Storage.
@@ -457,8 +458,8 @@ func (mock *StorageMock) SaveCalls() []struct {
 	return calls
 }
 
-// SaveMany calls SaveManyFunc.
-func (mock *StorageMock) SaveMany(ctx context.Context, m []collector.Measurement) error {
+// SaveAll calls SaveManyFunc.
+func (mock *StorageMock) SaveAll(ctx context.Context, m []collector.Measurement) error {
 	if mock.SaveManyFunc == nil {
 		panic("StorageMock.SaveManyFunc: method is nil but Storage.SaveMany was just called")
 	}

@@ -1,4 +1,4 @@
-package messagecollector
+package measurements
 
 import (
 	"context"
@@ -11,9 +11,15 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 )
+
+type messageAccepted struct {
+	Pack      senml.Pack `json:"pack"`
+	Timestamp time.Time  `json:"timestamp"`
+}
 
 type QueryResult struct {
 	Data       any
@@ -64,7 +70,7 @@ type QueryArgs struct {
 	OffsetLimit string
 }
 
-func (q QueryParams) NamedArgs() (QueryArgs, error) {
+func (q QueryParams) Parse() (QueryArgs, error) {
 	qa := QueryArgs{}
 
 	n := pgx.NamedArgs{}
