@@ -265,6 +265,9 @@ func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
 		return ErrConnRefused
 	}
 
+	log := logging.GetFromContext(ctx)
+	log.Debug(fmt.Sprintf("send cloudevent %s to %s", evt.eventType, evt.endpoint))
+
 	return nil
 }
 
