@@ -155,7 +155,7 @@ func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSe
 
 		case msg := <-s.inbox:
 			if !contains(s.tenants, msg.Tenant()) {
-				break
+				continue
 			}
 
 			logger := logging.GetFromContext(msg.Context())
@@ -164,18 +164,18 @@ func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSe
 			err := json.Unmarshal(msg.Data(), &messageBody)
 			if err != nil {
 				logger.Error("could not unmarshal message body", "err", err.Error())
-				break
+				continue
 			}
 
 			id := getIDFromMessage(messageBody)
 
 			if id == "" {
 				logger.Debug("message body missing id property", slog.String("message_type", msg.Type()))
-				break
+				continue
 			}
 
 			if !matchIfNotEmpty(s.idPatterns, id) {
-				break
+				continue
 			}
 
 			timestamp := time.Now().UTC()
