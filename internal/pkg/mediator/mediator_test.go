@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/matryer/is"
 )
 
@@ -15,40 +16,6 @@ const TimeUntilMessagesHaveBeenProcessed time.Duration = 100 * time.Millisecond
 
 func TestThatTheInnerLoopStopsWhenContextIsDone(t *testing.T) {
 	_, ctx, _ := testSetup(t)
-	ctx.Done()
-}
-
-func TestThatSubscriberCountIsZeroAtStartup(t *testing.T) {
-	is, ctx, m := testSetup(t)
-	is.Equal(0, m.SubscriberCount())
-	ctx.Done()
-}
-
-func TestRegisterSubscribers(t *testing.T) {
-	is, ctx, m := testSetup(t)
-
-	impl := m.(*mediatorImpl)
-
-	s := NewSubscriber([]string{"default"})
-	m.Register(s)
-	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
-
-	is.Equal(1, impl.SubscriberCount())
-
-	ctx.Done()
-}
-
-func TestUnregisterSubscribers(t *testing.T) {
-	is, ctx, m := testSetup(t)
-	impl := m.(*mediatorImpl)
-	s := NewSubscriber([]string{"default"})
-
-	m.Register(s)
-	is.Equal(1, impl.SubscriberCount())
-
-	m.Unregister(s)
-	is.Equal(0, impl.SubscriberCount())
-
 	ctx.Done()
 }
 
@@ -79,7 +46,7 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
-	m.Publish(ctx, NewMessage(context.Background(), "id", "message.type", "default", []byte("{}")))
+	m.Publish(NewMessage(context.Background(), "id", "message.type", "default", []byte("{}")))
 
 	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
 
@@ -91,8 +58,11 @@ func TestPublishToValidSubscribers(t *testing.T) {
 
 func testSetup(t *testing.T) (*is.I, context.Context, Mediator) {
 	is := is.New(t)
-	m := New(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	ctx := context.Background()
+
+	ctx = logging.NewContextWithLogger(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
+
+	m := New(ctx)
 
 	go m.Start(ctx)
 

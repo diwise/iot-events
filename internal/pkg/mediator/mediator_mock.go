@@ -18,7 +18,7 @@ var _ Mediator = &MediatorMock{}
 //
 //		// make and configure a mocked Mediator
 //		mockedMediator := &MediatorMock{
-//			PublishFunc: func(ctx context.Context, message Message)  {
+//			PublishFunc: func(message Message)  {
 //				panic("mock out the Publish method")
 //			},
 //			RegisterFunc: func(subscriber Subscriber)  {
@@ -26,9 +26,6 @@ var _ Mediator = &MediatorMock{}
 //			},
 //			StartFunc: func(ctx context.Context)  {
 //				panic("mock out the Start method")
-//			},
-//			SubscriberCountFunc: func() int {
-//				panic("mock out the SubscriberCount method")
 //			},
 //			UnregisterFunc: func(subscriber Subscriber)  {
 //				panic("mock out the Unregister method")
@@ -41,16 +38,13 @@ var _ Mediator = &MediatorMock{}
 //	}
 type MediatorMock struct {
 	// PublishFunc mocks the Publish method.
-	PublishFunc func(ctx context.Context, message Message)
+	PublishFunc func(message Message)
 
 	// RegisterFunc mocks the Register method.
 	RegisterFunc func(subscriber Subscriber)
 
 	// StartFunc mocks the Start method.
 	StartFunc func(ctx context.Context)
-
-	// SubscriberCountFunc mocks the SubscriberCount method.
-	SubscriberCountFunc func() int
 
 	// UnregisterFunc mocks the Unregister method.
 	UnregisterFunc func(subscriber Subscriber)
@@ -59,8 +53,6 @@ type MediatorMock struct {
 	calls struct {
 		// Publish holds details about calls to the Publish method.
 		Publish []struct {
-			// Ctx is the ctx argument value.
-			Ctx context.Context
 			// Message is the message argument value.
 			Message Message
 		}
@@ -74,38 +66,32 @@ type MediatorMock struct {
 			// Ctx is the ctx argument value.
 			Ctx context.Context
 		}
-		// SubscriberCount holds details about calls to the SubscriberCount method.
-		SubscriberCount []struct {
-		}
 		// Unregister holds details about calls to the Unregister method.
 		Unregister []struct {
 			// Subscriber is the subscriber argument value.
 			Subscriber Subscriber
 		}
 	}
-	lockPublish         sync.RWMutex
-	lockRegister        sync.RWMutex
-	lockStart           sync.RWMutex
-	lockSubscriberCount sync.RWMutex
-	lockUnregister      sync.RWMutex
+	lockPublish    sync.RWMutex
+	lockRegister   sync.RWMutex
+	lockStart      sync.RWMutex
+	lockUnregister sync.RWMutex
 }
 
 // Publish calls PublishFunc.
-func (mock *MediatorMock) Publish(ctx context.Context, message Message) {
+func (mock *MediatorMock) Publish(message Message) {
 	if mock.PublishFunc == nil {
 		panic("MediatorMock.PublishFunc: method is nil but Mediator.Publish was just called")
 	}
 	callInfo := struct {
-		Ctx     context.Context
 		Message Message
 	}{
-		Ctx:     ctx,
 		Message: message,
 	}
 	mock.lockPublish.Lock()
 	mock.calls.Publish = append(mock.calls.Publish, callInfo)
 	mock.lockPublish.Unlock()
-	mock.PublishFunc(ctx, message)
+	mock.PublishFunc(message)
 }
 
 // PublishCalls gets all the calls that were made to Publish.
@@ -113,11 +99,9 @@ func (mock *MediatorMock) Publish(ctx context.Context, message Message) {
 //
 //	len(mockedMediator.PublishCalls())
 func (mock *MediatorMock) PublishCalls() []struct {
-	Ctx     context.Context
 	Message Message
 } {
 	var calls []struct {
-		Ctx     context.Context
 		Message Message
 	}
 	mock.lockPublish.RLock()
@@ -187,33 +171,6 @@ func (mock *MediatorMock) StartCalls() []struct {
 	mock.lockStart.RLock()
 	calls = mock.calls.Start
 	mock.lockStart.RUnlock()
-	return calls
-}
-
-// SubscriberCount calls SubscriberCountFunc.
-func (mock *MediatorMock) SubscriberCount() int {
-	if mock.SubscriberCountFunc == nil {
-		panic("MediatorMock.SubscriberCountFunc: method is nil but Mediator.SubscriberCount was just called")
-	}
-	callInfo := struct {
-	}{}
-	mock.lockSubscriberCount.Lock()
-	mock.calls.SubscriberCount = append(mock.calls.SubscriberCount, callInfo)
-	mock.lockSubscriberCount.Unlock()
-	return mock.SubscriberCountFunc()
-}
-
-// SubscriberCountCalls gets all the calls that were made to SubscriberCount.
-// Check the length with:
-//
-//	len(mockedMediator.SubscriberCountCalls())
-func (mock *MediatorMock) SubscriberCountCalls() []struct {
-} {
-	var calls []struct {
-	}
-	mock.lockSubscriberCount.RLock()
-	calls = mock.calls.SubscriberCount
-	mock.lockSubscriberCount.RUnlock()
 	return calls
 }
 
