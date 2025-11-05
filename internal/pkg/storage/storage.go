@@ -26,6 +26,10 @@ type storageImpl struct {
 }
 
 func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Metadata) error {
+	if len(metadata) == 0 {
+		return nil
+	}
+
 	sql := `INSERT INTO events_measurements_metadata (id, device_id, key, value)
 			VALUES (@id, @device_id, @key, @value)
 			ON CONFLICT (id, key) DO UPDATE 

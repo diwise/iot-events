@@ -2,12 +2,14 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/diwise/iot-events/internal/pkg/application"
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
@@ -62,8 +64,16 @@ func main() {
 	policies, err := os.Open(flags[policiesFile])
 	exitIf(err, logger, "unable to open opa policy file")
 
-	mcf, err := os.Open(flags[metadataFile])
-	exitIf(err, logger, "unable to open metadata config file")
+	var mf io.ReadCloser
+	mf, err = os.Open(flags[metadataFile])
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Warn("metadata file does not exist, proceeding without initial metadata", "file", flags[metadataFile])
+			mf = io.NopCloser(strings.NewReader(""))
+		} else {
+			exitIf(err, logger, "unable to open metadata config file")
+		}
+	}
 
 	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
 	storageConfig := storage.NewConfig(flags[dbHost], flags[dbPort], flags[dbName], flags[dbUser], flags[dbPassword], flags[dbSSLMode])
@@ -74,7 +84,7 @@ func main() {
 		cloudeventsConfig: cloudeventsConfig,
 	}
 
-	runner, _ := initialize(ctx, flags, cfg, policies, mcf)
+	runner, _ := initialize(ctx, flags, cfg, policies, mf)
 
 	err = runner.Run(ctx)
 	exitIf(err, logger, "failed to start service runner")
