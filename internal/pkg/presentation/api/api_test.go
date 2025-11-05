@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/go-chi/jwtauth/v5"
@@ -19,11 +19,11 @@ import (
 func TestAPI(t *testing.T) {
 	is := is.New(t)
 	mm := &mediator.MediatorMock{
-		PublishFunc: func(ctx context.Context, message mediator.Message) {},
+		PublishFunc: func(message mediator.Message) {},
 	}
 	sm := &storage.StorageMock{
-		QueryFunc: func(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
-			return messagecollector.QueryResult{}
+		QueryFunc: func(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
+			return measurements.QueryResult{}
 		},
 	}
 	mux := http.NewServeMux()

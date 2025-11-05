@@ -2,17 +2,19 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 
+	"github.com/diwise/iot-events/internal/pkg/application"
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
-	"github.com/diwise/iot-events/internal/pkg/handlers"
+	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -31,6 +33,7 @@ func defaultFlags() flagMap {
 
 		cloudeventsFile: "/opt/diwise/config/cloudevents.yaml",
 		policiesFile:    "/opt/diwise/config/authz.rego",
+		metadataFile:    "/opt/diwise/config/metadata.csv",
 
 		messengerTopic: "#",
 
@@ -46,53 +49,57 @@ func defaultFlags() flagMap {
 const serviceName string = "iot-events"
 
 func main() {
-
 	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
 
 	serviceVersion := buildinfo.SourceVersion()
 	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
-	messenger, err := messaging.Initialize(
-		ctx, messaging.LoadConfiguration(ctx, serviceName, logger),
-	)
-	exitIf(err, logger, "failed to init messenger")
-
-	storage, err := storage.New(ctx, storage.NewConfig(
-		flags[dbHost], flags[dbPort], flags[dbName],
-		flags[dbUser], flags[dbPassword], flags[dbSSLMode]),
-	)
-	exitIf(err, logger, "failed to connect to storage")
-
-	cloudEventsConfig, err := os.Open(flags[cloudeventsFile])
+	cf, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
+
+	cloudeventsConfig, err := cloudevents.LoadConfiguration(cf)
+	exitIf(err, logger, "unable to load cloudevents config")
 
 	policies, err := os.Open(flags[policiesFile])
 	exitIf(err, logger, "unable to open opa policy file")
 
-	cfg := &appConfig{
-		mediator:  mediator.New(logger),
-		messenger: messenger,
-		storage:   storage,
+	var mf io.ReadCloser
+	mf, err = os.Open(flags[metadataFile])
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			logger.Warn("metadata file does not exist, proceeding without initial metadata", "file", flags[metadataFile])
+			mf = io.NopCloser(strings.NewReader(""))
+		} else {
+			exitIf(err, logger, "unable to open metadata config file")
+		}
 	}
 
-	runner, _ := initialize(ctx, flags, cfg, policies, cloudEventsConfig)
+	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
+	storageConfig := storage.NewConfig(flags[dbHost], flags[dbPort], flags[dbName], flags[dbUser], flags[dbPassword], flags[dbSSLMode])
+
+	cfg := &appConfig{
+		storageConfig:     storageConfig,
+		messengerConfig:   messengerConfig,
+		cloudeventsConfig: cloudeventsConfig,
+	}
+
+	runner, _ := initialize(ctx, flags, cfg, policies, mf)
 
 	err = runner.Run(ctx)
 	exitIf(err, logger, "failed to start service runner")
 }
 
-func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.ReadCloser, cloudconfig io.ReadCloser) (servicerunner.Runner[appConfig], error) {
-	defer cloudconfig.Close()
-	defer policies.Close()
+func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile io.ReadCloser, metadataFile io.ReadCloser) (servicerunner.Runner[appConfig], error) {
+	defer policiesFile.Close()
+	defer metadataFile.Close()
 
-	cecfg, err := cloudevents.LoadConfiguration(cloudconfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load cloudevents config: %s", err.Error())
-	}
+	var err error
 
-	cfg.ce = cloudevents.New(cecfg, cfg.mediator)
-	cfg.mc = messagecollector.New(cfg.mediator, cfg.storage)
+	var messenger messaging.MsgContext
+	var s storage.Storage
+	var ce cloudevents.CloudEvents
+	var m mediator.Mediator
 
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
@@ -105,26 +112,51 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policies io.
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
-				api.RegisterHandlers(ctx, serviceName, handler, cfg.mediator, cfg.storage, policies)
+				api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
 				return nil
 			}),
 		),
+		oninit(func(ctx context.Context, cfg *appConfig) error {
+			m = mediator.New(ctx)
+
+			s, err = storage.New(ctx, cfg.storageConfig)
+			if err != nil {
+				return fmt.Errorf("could not create storage %w", err)
+			}
+
+			messenger, err = messaging.Initialize(ctx, cfg.messengerConfig)
+			if err != nil {
+				return fmt.Errorf("could not initialize messenger %w", err)
+			}
+
+			ce = cloudevents.New(cfg.cloudeventsConfig, m)
+
+			metadata, err := measurements.LoadMetadata(ctx, metadataFile)
+			if err != nil {
+				return fmt.Errorf("failed to load metadata: %w", err)
+			}
+
+			err = s.SeedMetadata(ctx, metadata)
+			if err != nil {
+				return fmt.Errorf("could not seed metadata %w", err)
+			}
+
+			return nil
+		}),
 		onstarting(func(ctx context.Context, svcCfg *appConfig) (err error) {
 
-			svcCfg.mediator.Start(ctx)
-			svcCfg.ce.Start(ctx)
-			svcCfg.mc.Start(ctx)
-			svcCfg.messenger.Start()
+			m.Start(ctx)
+			ce.Start(ctx)
+			messenger.Start()
 
-			cfg.messenger.RegisterTopicMessageHandler(
-				flags[messengerTopic],
-				handlers.NewTopicMessageHandler(cfg.messenger, cfg.mediator),
-			)
+			messenger.RegisterTopicMessageHandler(flags[messengerTopic], application.NewMessageHandler(m))
+			messenger.RegisterTopicMessageHandler("message.accepted", measurements.NewMessageAcceptedHandler(s))
 
 			return nil
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
-			// TODO: Proper cleanup
+			messenger.Close()
+
 			return nil
 		}),
 	)
@@ -137,6 +169,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	// Allow environment variables to override certain defaults
 	envOrDef := env.GetVariableOrDefault
 	flags[servicePort] = envOrDef(ctx, "SERVICE_PORT", flags[servicePort])
+	flags[controlPort] = envOrDef(ctx, "CONTROL_PORT", flags[controlPort])
+
 	flags[messengerTopic] = envOrDef(ctx, "RABBITMQ_TOPIC", flags[messengerTopic])
 
 	flags[dbHost] = envOrDef(ctx, "POSTGRES_HOST", flags[dbHost])
@@ -156,6 +190,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	// Allow command line arguments to override defaults and environment variables
 	flag.Func("cloudevents", "configuration file for cloud events", apply(cloudeventsFile))
 	flag.Func("policies", "an authorization policy file", apply(policiesFile))
+	flag.Func("metadata", "a CSV file with initial metadata", apply(metadataFile))
+
 	flag.Parse()
 
 	return ctx, flags

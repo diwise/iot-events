@@ -37,7 +37,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	cfg, err := LoadConfiguration(io.NopCloser(r))
 	is.NoErr(err)
 
-	m := mediator.New(logger)
+	m := mediator.New(ctx)
 	go m.Start(ctx)
 
 	New(cfg, m).Start(context.Background())
@@ -46,7 +46,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 
 	ds := newDeviceStatusUpdated(now)
 
-	m.Publish(ctx, mediator.NewMessage(ctx, "messageID", "device.statusUpdated", "default", ds))
+	m.Publish(mediator.NewMessage(ctx, "messageID", "device.statusUpdated", "default", ds))
 
 	result := <-resultChan
 
@@ -57,13 +57,9 @@ func TestThatCloudEventIsSent(t *testing.T) {
 func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 	is, subscriber := testSetup(t)
 
-	m := mediator.MediatorMock{
-		UnregisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
 	var calls int = 0
 
-	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -77,13 +73,9 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 	is, subscriber := testSetup(t)
 
-	m := mediator.MediatorMock{
-		UnregisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
 	var calls int = 0
 
-	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -100,13 +92,9 @@ func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 
 	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Watermeter:.+")
 
-	m := mediator.MediatorMock{
-		UnregisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
 	var calls int = 0
 
-	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -150,13 +138,9 @@ func TestShouldBeSent(t *testing.T) {
 	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Device:.+")
 	subscriber.tenants = append(subscriber.tenants, "anotherTenant")
 
-	m := mediator.MediatorMock{
-		UnregisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
 	var calls int = 0
 
-	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
@@ -174,13 +158,9 @@ func TestShouldBeSentForSecondPattern(t *testing.T) {
 	subscriber.idPatterns = append(subscriber.idPatterns, "^se:servanet:lora:msva:.+")
 	subscriber.tenants = append(subscriber.tenants, "default")
 
-	m := mediator.MediatorMock{
-		UnregisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
 	var calls int = 0
 
-	go subscriber.run(context.Background(), &m, func(e eventInfo) error {
+	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})

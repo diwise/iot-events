@@ -2,8 +2,6 @@ package main
 
 import (
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
-	"github.com/diwise/iot-events/internal/pkg/mediator"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
@@ -26,16 +24,17 @@ const (
 	dbPort
 	dbName
 	dbSSLMode
+
+	metadataFile
 )
 
 type appConfig struct {
-	mediator  mediator.Mediator
-	messenger messaging.MsgContext
-	storage   storage.Storage
-	ce        cloudevents.CloudEvents
-	mc        messagecollector.MessageCollector
+	storageConfig     storage.Config
+	messengerConfig   messaging.Config
+	cloudeventsConfig *cloudevents.Config
 }
 
+var oninit = servicerunner.OnInit[appConfig]
 var onstarting = servicerunner.OnStarting[appConfig]
 var onshutdown = servicerunner.OnShutdown[appConfig]
 var webserver = servicerunner.WithHTTPServeMux[appConfig]

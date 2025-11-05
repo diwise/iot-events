@@ -5,7 +5,7 @@ import (
 	"errors"
 	"log/slog"
 
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	collector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -15,19 +15,61 @@ import (
 
 //go:generate moq -rm -out storage_mock.go . Storage
 type Storage interface {
-	messagecollector.MeasurementRetriever
-	messagecollector.MeasurementStorer
+	SeedMetadata(ctx context.Context, metadata []collector.Metadata) error
+	collector.MeasurementRetriever
+	collector.MeasurementStorer
 }
 
 type storageImpl struct {
 	conn *pgxpool.Pool
 }
 
-func (s storageImpl) Save(ctx context.Context, m messagecollector.Measurement) error {
-	return s.SaveMany(ctx, []messagecollector.Measurement{m})
+func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Metadata) error {
+	if len(metadata) == 0 {
+		return nil
+	}
+
+	sql := `INSERT INTO events_measurements_metadata (id, device_id, key, value)
+			VALUES (@id, @device_id, @key, @value)
+			ON CONFLICT (id, key) DO UPDATE 
+			SET value = EXCLUDED.value, 
+			    updated_on = CURRENT_TIMESTAMP;`
+
+	log := logging.GetFromContext(ctx)
+
+	batch := &pgx.Batch{}
+
+	for _, m := range metadata {
+		args := pgx.NamedArgs{
+			"id":        m.ID,
+			"device_id": m.DeviceID,
+			"key":       m.Key,
+			"value":     m.Value,
+		}
+
+		batch.Queue(sql, args)
+	}
+
+	results := s.conn.SendBatch(ctx, batch)
+	defer results.Close()
+
+	_, err := results.Exec()
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			log.Error("could not insert new metadata", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
+		}
+		return err
+	}
+
+	return nil
 }
 
-func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollector.Measurement) error {
+func (s storageImpl) Save(ctx context.Context, m collector.Measurement) error {
+	return s.SaveAll(ctx, []collector.Measurement{m})
+}
+
+func (s storageImpl) SaveAll(ctx context.Context, measurements []collector.Measurement) error {
 	log := logging.GetFromContext(ctx)
 
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
@@ -38,7 +80,13 @@ func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollect
 				vb = COALESCE(EXCLUDED.vb, events_measurements.vb),
 				updated_on = CURRENT_TIMESTAMP;`
 
+	var traceID string = ""
+
 	spanCtx := trace.SpanContextFromContext(ctx)
+	if spanCtx.HasTraceID() {
+		traceID = spanCtx.TraceID().String()
+	}
+
 	batch := &pgx.Batch{}
 
 	for _, m := range measurements {
@@ -58,9 +106,8 @@ func (s storageImpl) SaveMany(ctx context.Context, measurements []messagecollect
 			"trace_id":  nil,
 		}
 
-		if spanCtx.HasTraceID() {
-			traceID := spanCtx.TraceID()
-			args["trace_id"] = traceID.String()
+		if traceID != "" {
+			args["trace_id"] = traceID
 		}
 
 		batch.Queue(sql, args)
@@ -135,6 +182,19 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 		updated_on  timestamp with time zone NULL, 
 		trace_id 	TEXT NULL,			
 		UNIQUE ("time", "id"));`)
+	if err != nil {
+		return err
+	}
+
+	_, err = c.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS events_measurements_metadata (
+		id  		TEXT NOT NULL,
+		device_id  	TEXT NOT NULL,
+		key 		TEXT NOT NULL,
+		value		TEXT NOT NULL,
+		created_on  timestamp with time zone NOT NULL DEFAULT CURRENT_TIMESTAMP,
+		updated_on  timestamp with time zone NULL, 
+		UNIQUE ("id", "key"));`)
 	if err != nil {
 		return err
 	}

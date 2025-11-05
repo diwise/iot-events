@@ -15,11 +15,115 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	messagecollector "github.com/diwise/iot-events/internal/pkg/msgcollector"
+	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
-func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) QueryWithMetadata(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
+	log := logging.GetFromContext(ctx)
+
+	if len(tenants) == 0 {
+		return errorResult("no tenants provided")
+	}
+
+	qa, err := q.Parse()
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+
+	qa.Args["tenants"] = tenants
+
+	tableName := "events_measurements"
+
+	if latest, ok := q.GetBool("latest"); ok && latest {
+		tableName = "events_measurements_latest"
+	}
+
+	sql := fmt.Sprintf(`
+		WITH metadata AS (
+			SELECT m.id, array_agg(ARRAY[m.key, m.value]) AS meta
+			FROM events_measurements_metadata m
+			GROUP BY m.id
+		)
+		
+		SELECT e.time, e.id, e.device_id, e.urn, e.location, e.n, e.v, e.vs, e.vb, e.unit, e.tenant, m.meta, COUNT(*) OVER() AS total_count
+		FROM %s e
+		LEFT JOIN metadata m ON e.id = m.id 
+		WHERE tenant=ANY(@tenants) %s %s
+		ORDER BY e.id ASC, e.time DESC`, tableName, qa.Where, qa.OffsetLimit)
+
+	log.Debug("QueryWithMetadata", slog.String("sql", sql), slog.Any("args", qa.Args))
+
+	rows, err := s.conn.Query(ctx, sql, qa.Args)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer rows.Close()
+
+	var ts time.Time
+	var id, device_id, urn, n, vs, unit, tenant string
+	var meta [][]string
+	var location pgtype.Point
+	var v *float64
+	var vb *bool
+	var total_count uint64
+
+	ms := []measurements.Measurement{}
+
+	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &device_id, &urn, &location, &n, &v, &vs, &vb, &unit, &tenant, &meta, &total_count}, func() error {
+		m := measurements.Measurement{}
+
+		m.ID = id
+		m.Timestamp = ts.UTC()
+		m.DeviceID = device_id
+		m.Urn = urn
+		m.Name = n
+		m.Value = v
+		m.BoolValue = vb
+		m.StringValue = vs
+		m.Unit = unit
+		m.Tenant = tenant
+
+		if location.P.Y > 0.0 && location.P.X > 0.0 {
+			m.Lat = location.P.Y
+			m.Lon = location.P.X
+		}
+
+		for _, kv := range meta {
+			if len(kv) == 2 {
+				md := measurements.Metadata{
+					Key:   kv[0],
+					Value: kv[1],
+				}
+				m.Metadata = append(m.Metadata, md)
+			}
+		}
+
+		ms = append(ms, m)
+
+		return nil
+	})
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+
+	if qa.Limit == 0 {
+		qa.Limit = uint64(len(ms))
+	}
+
+	result := measurements.QueryResult{
+		Data:       ms,
+		Count:      uint64(len(ms)),
+		Offset:     qa.Offset,
+		Limit:      qa.Limit,
+		TotalCount: total_count,
+		Error:      nil,
+	}
+
+	return result
+}
+
+func (s storageImpl) Query(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
 	_, ok := q.GetString("aggrMethods")
 	if ok {
 		return s.aggrQuery(ctx, q, tenants)
@@ -115,9 +219,9 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	}
 	defer rows.Close()
 
-	m := messagecollector.MeasurementResult{
+	m := measurements.MeasurementResult{
 		ID:     id,
-		Values: make([]messagecollector.Value, 0),
+		Values: make([]measurements.Value, 0),
 	}
 
 	for rows.Next() {
@@ -127,7 +231,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 			return errorResult("%s", err.Error())
 		}
 
-		value := messagecollector.Value{
+		value := measurements.Value{
 			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
 			StringValue: vs,
@@ -163,7 +267,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 		}
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       m,
 		Count:      count,
 		Offset:     offset,
@@ -173,7 +277,7 @@ func (s storageImpl) Query(ctx context.Context, q messagecollector.QueryParams, 
 	}
 }
 
-func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) aggrQuery(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
 	log := logging.GetFromContext(ctx)
 
 	aggrMethods, ok := q.GetString("aggrMethods")
@@ -259,7 +363,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 	defer rows.Close()
 
-	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[messagecollector.AggrResult])
+	aggr, err := pgx.CollectExactlyOneRow(rows, pgx.RowToStructByPos[measurements.AggrResult])
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return noRowsFoundError()
@@ -267,7 +371,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("%s", err.Error())
 	}
 
-	aggrResult := messagecollector.AggrResult{}
+	aggrResult := measurements.AggrResult{}
 	if slices.Contains(methods, "avg") {
 		aggrResult.Average = aggr.Average
 	}
@@ -281,7 +385,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 		aggrResult.Total = aggr.Total
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       aggrResult,
 		Count:      1,
 		Offset:     0,
@@ -291,7 +395,7 @@ func (s storageImpl) aggrQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 }
 
-func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) rateQuery(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
 	log := logging.GetFromContext(ctx)
 
 	timeUnit, ok := q.GetString("timeUnit")
@@ -374,11 +478,11 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	var ts time.Time
 	var n uint64
 
-	values := make([]messagecollector.Value, 0)
+	values := make([]measurements.Value, 0)
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &n}, func() error {
 		sum := float64(n)
-		value := messagecollector.Value{
+		value := measurements.Value{
 			Timestamp: ts.UTC(),
 			Sum:       &sum,
 		}
@@ -392,11 +496,11 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 		return errorResult("%s", err.Error())
 	}
 
-	result := messagecollector.MeasurementResult{
+	result := measurements.MeasurementResult{
 		Values: values,
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       result,
 		Count:      uint64(len(result.Values)),
 		Offset:     0,
@@ -406,7 +510,7 @@ func (s storageImpl) rateQuery(ctx context.Context, q messagecollector.QueryPara
 	}
 }
 
-func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryParams, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) countQuery(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
 	var id string
 	var ok bool
 
@@ -445,11 +549,11 @@ func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryPar
 		n = 0
 	}
 
-	aggres := messagecollector.AggrResult{
+	aggres := measurements.AggrResult{
 		Count: &n,
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       aggres,
 		Count:      1,
 		Offset:     0,
@@ -459,7 +563,7 @@ func (s storageImpl) countQuery(ctx context.Context, q messagecollector.QueryPar
 	}
 }
 
-func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tenants []string) measurements.QueryResult {
 	log := logging.GetFromContext(ctx)
 
 	sql := `
@@ -493,11 +597,11 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 	var vb *bool
 	lastObserved := time.Unix(0, 0).UTC()
 
-	or := messagecollector.MeasurementResult{
+	or := measurements.MeasurementResult{
 		DeviceID:     deviceID,
 		Urn:          urn,
 		LastObserved: &lastObserved,
-		Values:       make([]messagecollector.Value, 0),
+		Values:       make([]measurements.Value, 0),
 	}
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &location, &n, &v, &vs, &vb, &unit, &tenant}, func() error {
@@ -518,7 +622,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 		i := id
 		name := n
 
-		value := messagecollector.Value{
+		value := measurements.Value{
 			Timestamp:   ts.UTC(),
 			BoolValue:   vb,
 			StringValue: vs,
@@ -540,7 +644,7 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 		return errorResult("%s", err.Error())
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       or,
 		Count:      uint64(len(or.Values)),
 		Offset:     0,
@@ -550,12 +654,12 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 	}
 }
 
-func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollector.QueryParams, tenants []string) (map[string][]messagecollector.Value, error) {
+func (s storageImpl) Fetch(ctx context.Context, deviceID string, q measurements.QueryParams, tenants []string) (map[string][]measurements.Value, error) {
 	log := logging.GetFromContext(ctx)
 
 	timeRelSql, timeAt, endTimeAt, err := getTimeRelSQL(q)
 	if err != nil {
-		return map[string][]messagecollector.Value{}, err
+		return map[string][]measurements.Value{}, err
 	}
 
 	args := pgx.NamedArgs{
@@ -596,7 +700,7 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("Fetch failed", slog.String("sql", sql), slog.Any("args", args))
-		return map[string][]messagecollector.Value{}, err
+		return map[string][]measurements.Value{}, err
 	}
 	defer rows.Close()
 
@@ -607,7 +711,7 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 	var v *float64
 	var vb *bool
 
-	val := map[string][]messagecollector.Value{}
+	val := map[string][]measurements.Value{}
 
 	_, err = pgx.ForEachRow(rows, []any{&ts, &id, &v, &vb, &unit, &n}, func() error {
 		_id := id
@@ -617,7 +721,7 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 		_unit := unit
 		_n := n
 
-		value := messagecollector.Value{
+		value := measurements.Value{
 			ID:        &_id,
 			Timestamp: _ts,
 			BoolValue: _vb,
@@ -629,15 +733,15 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q messagecollec
 		return nil
 	})
 	if err != nil {
-		return map[string][]messagecollector.Value{}, nil
+		return map[string][]measurements.Value{}, nil
 	}
 
 	return val, nil
 }
 
-func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]messagecollector.Value, error) {
+func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]measurements.Value, error) {
 	if deviceID == "" {
-		return []messagecollector.Value{}, errors.New("no deviceID found in fetchLatest query")
+		return []measurements.Value{}, errors.New("no deviceID found in fetchLatest query")
 	}
 	log := logging.GetFromContext(ctx)
 
@@ -663,7 +767,7 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 	rows, err := s.conn.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("FetchLatest failed", slog.String("sql", sql), slog.Any("args", args))
-		return []messagecollector.Value{}, err
+		return []measurements.Value{}, err
 	}
 	defer rows.Close()
 
@@ -674,7 +778,7 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 	var v *float64
 	var vb *bool
 
-	val := []messagecollector.Value{}
+	val := []measurements.Value{}
 
 	_, err = pgx.ForEachRow(rows, []any{&id, &ts, &n, &v, &vb, &unit}, func() error {
 		_id := id
@@ -683,7 +787,7 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 		_vb := vb
 		_unit := unit
 
-		value := messagecollector.Value{
+		value := measurements.Value{
 			ID:        &_id,
 			Timestamp: _ts,
 			BoolValue: _vb,
@@ -695,13 +799,13 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 		return nil
 	})
 	if err != nil {
-		return []messagecollector.Value{}, nil
+		return []measurements.Value{}, nil
 	}
 
 	return val, nil
 }
 
-func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants []string) messagecollector.QueryResult {
+func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants []string) measurements.QueryResult {
 	if deviceID == "" {
 		return errorResult("query contains no deviceID")
 	}
@@ -744,10 +848,10 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 	var vb *bool
 	lastObserved := time.Unix(0, 0).UTC()
 
-	dr := messagecollector.MeasurementResult{
+	dr := measurements.MeasurementResult{
 		DeviceID:     deviceID,
 		LastObserved: &lastObserved,
-		Values:       make([]messagecollector.Value, 0),
+		Values:       make([]measurements.Value, 0),
 	}
 
 	for rows.Next() {
@@ -765,7 +869,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		_v := v
 		_vb := vb
 
-		t := messagecollector.Value{
+		t := measurements.Value{
 			ID:        &_id,
 			Urn:       &_urn,
 			Timestamp: _ts,
@@ -780,7 +884,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 		}
 	}
 
-	return messagecollector.QueryResult{
+	return measurements.QueryResult{
 		Data:       dr,
 		Count:      uint64(len(dr.Values)),
 		Offset:     0,
@@ -790,7 +894,7 @@ func (s storageImpl) QueryDevice(ctx context.Context, deviceID string, tenants [
 	}
 }
 
-func getTimeRelSQL(q messagecollector.QueryParams) (string, time.Time, time.Time, error) {
+func getTimeRelSQL(q measurements.QueryParams) (string, time.Time, time.Time, error) {
 	timeRel, ok := q.GetString("timeRel")
 	if ok {
 		if !slices.Contains([]string{"after", "before", "between"}, timeRel) {
@@ -838,14 +942,14 @@ func getTimeRelSQL(q messagecollector.QueryParams) (string, time.Time, time.Time
 	return timeRelSql, timeAt, endTimeAt, nil
 }
 
-func noRowsFoundError() messagecollector.QueryResult {
-	return messagecollector.QueryResult{
-		Error: messagecollector.ErrNotFound,
+func noRowsFoundError() measurements.QueryResult {
+	return measurements.QueryResult{
+		Error: measurements.ErrNotFound,
 	}
 }
 
-func errorResult(msg string, args ...any) messagecollector.QueryResult {
-	return messagecollector.QueryResult{
+func errorResult(msg string, args ...any) measurements.QueryResult {
+	return measurements.QueryResult{
 		Error: fmt.Errorf(msg, args...),
 	}
 }
