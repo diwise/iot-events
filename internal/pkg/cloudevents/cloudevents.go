@@ -240,7 +240,8 @@ func getIDFromMessage(m messageBody) string {
 }
 
 func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
-	//c, err := cloudevents.NewClientHTTP()
+	log := logging.GetFromContext(ctx)
+
 	c, err := otelo11y.NewClientHTTP([]cehttp.Option{}, []client.Option{})
 	if err != nil {
 		return ErrCloudEventClientError
@@ -265,7 +266,6 @@ func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
 		return ErrConnRefused
 	}
 
-	log := logging.GetFromContext(ctx)
 	log.Debug(fmt.Sprintf("send cloudevent %s to %s", evt.eventType, evt.endpoint))
 
 	return nil
