@@ -4,8 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-
-	"github.com/diwise/iot-events/internal/pkg/measurements"
+	
 	collector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
@@ -17,8 +16,8 @@ import (
 //go:generate moq -rm -out storage_mock.go . Storage
 type Storage interface {
 	SeedMetadata(ctx context.Context, metadata []collector.Metadata) error
-	measurements.MeasurementRetriever
-	measurements.MeasurementStorer
+	collector.MeasurementRetriever
+	collector.MeasurementStorer
 }
 
 type storageImpl struct {
