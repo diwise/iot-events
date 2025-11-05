@@ -92,7 +92,7 @@ func NewQueryMeasurementsHandler1(m messagecollector.MeasurementRetriever, log *
 			return
 		}
 
-		result := m.Query2(ctx, qp, allowedTenants)
+		result := m.QueryWithMetadata(ctx, qp, allowedTenants)
 		if result.Error != nil {
 			if !errors.Is(result.Error, messagecollector.ErrNotFound) {
 				logger.Error("could not query measurements", "err", result.Error.Error())

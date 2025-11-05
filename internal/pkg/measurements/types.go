@@ -333,7 +333,7 @@ func LoadMetadata(ctx context.Context, f io.Reader) ([]Metadata, error) {
 		return nil, fmt.Errorf("could not read metadata csv: %w", err)
 	}
 
-	if len(records) < 1 { 
+	if len(records) < 1 {
 		return []Metadata{}, nil
 	}
 

@@ -24,7 +24,7 @@ type MeasurementRetriever interface {
 	Fetch(ctx context.Context, deviceID string, q QueryParams, tenants []string) (map[string][]Value, error)
 	FetchLatest(ctx context.Context, deviceID string, tenants []string) ([]Value, error)
 
-	Query2(ctx context.Context, q QueryParams, tenants []string) QueryResult
+	QueryWithMetadata(ctx context.Context, q QueryParams, tenants []string) QueryResult
 }
 
 func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandler {
