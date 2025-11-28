@@ -29,15 +29,25 @@ func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Meta
 		return nil
 	}
 
+	log := logging.GetFromContext(ctx)
+
 	sql := `INSERT INTO events_measurements_metadata (id, device_id, key, value)
 			VALUES (@id, @device_id, @key, @value)
 			ON CONFLICT (id, key) DO UPDATE 
 			SET value = EXCLUDED.value, 
 			    updated_on = CURRENT_TIMESTAMP;`
 
-	log := logging.GetFromContext(ctx)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Release()
 
-	batch := &pgx.Batch{}
+	tx, err := c.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 
 	for _, m := range metadata {
 		args := pgx.NamedArgs{
@@ -47,18 +57,15 @@ func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Meta
 			"value":     m.Value,
 		}
 
-		batch.Queue(sql, args)
+		_, err := tx.Exec(ctx, sql, args)
+		if err != nil {
+			return err
+		}
 	}
 
-	results := s.conn.SendBatch(ctx, batch)
-	defer results.Close()
-
-	_, err := results.Exec()
+	err = tx.Commit(ctx)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			log.Error("could not insert new metadata", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
-		}
+		log.Error("could not commit metadata seeding transaction", slog.String("error", err.Error()))
 		return err
 	}
 
@@ -71,6 +78,10 @@ func (s storageImpl) Save(ctx context.Context, m collector.Measurement) error {
 
 func (s storageImpl) SaveAll(ctx context.Context, measurements []collector.Measurement) error {
 	log := logging.GetFromContext(ctx)
+
+	if len(measurements) == 0 {
+		return nil
+	}
 
 	sql := `INSERT INTO events_measurements (time,id,device_id,urn,location,n,v,vs,vb,unit,tenant,trace_id)
 			VALUES (@time,@id,@device_id,@urn,point(@lon,@lat),@n,@v,@vs,@vb,@unit,@tenant,@trace_id)
@@ -87,7 +98,17 @@ func (s storageImpl) SaveAll(ctx context.Context, measurements []collector.Measu
 		traceID = spanCtx.TraceID().String()
 	}
 
-	batch := &pgx.Batch{}
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Release()
+
+	tx, err := c.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
 
 	for _, m := range measurements {
 		args := pgx.NamedArgs{
@@ -110,18 +131,15 @@ func (s storageImpl) SaveAll(ctx context.Context, measurements []collector.Measu
 			args["trace_id"] = traceID
 		}
 
-		batch.Queue(sql, args)
+		_, err := tx.Exec(ctx, sql, args)
+		if err != nil {
+			return err
+		}
 	}
 
-	results := s.conn.SendBatch(ctx, batch)
-	defer results.Close()
-
-	_, err := results.Exec()
+	err = tx.Commit(ctx)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
-			log.Error("could not insert new measurements", slog.String("code", pgErr.Code), slog.String("message", pgErr.Message))
-		}
+		log.Error("could not commit measurements transaction", slog.String("error", err.Error()))
 		return err
 	}
 
@@ -210,7 +228,15 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 		return err
 	}
 
-	_, _ = c.Exec(ctx, `SELECT create_hypertable('events_measurements', 'time');`)
+	_, err = c.Exec(ctx, `SELECT create_hypertable('events_measurements', 'time');`)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) {
+			if pgErr.Code != "TS110" {
+				return err
+			}
+		}
+	}
 
 	_, err = c.Exec(ctx, `
 		CREATE MATERIALIZED VIEW IF NOT EXISTS count_by_day WITH (timescaledb.continuous) AS

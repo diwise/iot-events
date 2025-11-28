@@ -84,7 +84,7 @@ func (s storageImpl) QueryWithMetadata(ctx context.Context, q measurements.Query
 		m.Unit = unit
 		m.Tenant = tenant
 
-		if location.P.Y > 0.0 && location.P.X > 0.0 {
+		if location.Valid {
 			m.Lat = location.P.Y
 			m.Lon = location.P.X
 		}
