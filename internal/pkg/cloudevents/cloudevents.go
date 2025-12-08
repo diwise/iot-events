@@ -115,7 +115,7 @@ func (s *cloudEventSubscriber) run(ctx context.Context, eventSenderFunc CloudEve
 		return false
 	}
 
-	ifNotEmpty := func(idPatterns []string, id string) bool {
+	matchIfNotEmpty := func(idPatterns []string, id string) bool {
 		if len(idPatterns) == 0 {
 			return true // no configured id pattern will allow all id's
 		}
@@ -168,7 +168,7 @@ func (s *cloudEventSubscriber) run(ctx context.Context, eventSenderFunc CloudEve
 				continue
 			}
 
-			if !ifNotEmpty(s.idPatterns, m.ID()) {
+			if !matchIfNotEmpty(s.idPatterns, m.ID()) {
 				log.Debug("id pattern not matched", "id", m.ID())
 				continue
 			}
