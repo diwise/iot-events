@@ -19,6 +19,9 @@ var _ Storage = &StorageMock{}
 //
 //		// make and configure a mocked Storage
 //		mockedStorage := &StorageMock{
+//			CloseFunc: func()  {
+//				panic("mock out the Close method")
+//			},
 //			FetchFunc: func(ctx context.Context, deviceID string, q collector.QueryParams, tenants []string) (map[string][]collector.Value, error) {
 //				panic("mock out the Fetch method")
 //			},
@@ -53,6 +56,9 @@ var _ Storage = &StorageMock{}
 //
 //	}
 type StorageMock struct {
+	// CloseFunc mocks the Close method.
+	CloseFunc func()
+
 	// FetchFunc mocks the Fetch method.
 	FetchFunc func(ctx context.Context, deviceID string, q collector.QueryParams, tenants []string) (map[string][]collector.Value, error)
 
@@ -82,6 +88,9 @@ type StorageMock struct {
 
 	// calls tracks calls to the methods.
 	calls struct {
+		// Close holds details about calls to the Close method.
+		Close []struct {
+		}
 		// Fetch holds details about calls to the Fetch method.
 		Fetch []struct {
 			// Ctx is the ctx argument value.
@@ -162,6 +171,7 @@ type StorageMock struct {
 			Metadata []collector.Metadata
 		}
 	}
+	lockClose             sync.RWMutex
 	lockFetch             sync.RWMutex
 	lockFetchLatest       sync.RWMutex
 	lockQuery             sync.RWMutex
@@ -171,6 +181,33 @@ type StorageMock struct {
 	lockSave              sync.RWMutex
 	lockSaveAll           sync.RWMutex
 	lockSeedMetadata      sync.RWMutex
+}
+
+// Close calls CloseFunc.
+func (mock *StorageMock) Close() {
+	if mock.CloseFunc == nil {
+		panic("StorageMock.CloseFunc: method is nil but Storage.Close was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockClose.Lock()
+	mock.calls.Close = append(mock.calls.Close, callInfo)
+	mock.lockClose.Unlock()
+	mock.CloseFunc()
+}
+
+// CloseCalls gets all the calls that were made to Close.
+// Check the length with:
+//
+//	len(mockedStorage.CloseCalls())
+func (mock *StorageMock) CloseCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockClose.RLock()
+	calls = mock.calls.Close
+	mock.lockClose.RUnlock()
+	return calls
 }
 
 // Fetch calls FetchFunc.

@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -32,6 +34,7 @@ type appConfig struct {
 	storageConfig     storage.Config
 	messengerConfig   messaging.Config
 	cloudeventsConfig *cloudevents.Config
+	cancel            context.CancelFunc
 }
 
 var oninit = servicerunner.OnInit[appConfig]

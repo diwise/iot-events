@@ -18,10 +18,15 @@ type Storage interface {
 	SeedMetadata(ctx context.Context, metadata []collector.Metadata) error
 	collector.MeasurementRetriever
 	collector.MeasurementStorer
+	Close()
 }
 
 type storageImpl struct {
 	conn *pgxpool.Pool
+}
+
+func (s storageImpl) Close() {
+	s.conn.Close()
 }
 
 func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Metadata) error {

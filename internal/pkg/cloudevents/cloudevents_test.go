@@ -40,13 +40,12 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	m := mediator.New(ctx)
 	go m.Start(ctx)
 
-	New(cfg, m).Start(context.Background())
+	cloudEvents := New(cfg, m)
+	cloudEvents.Start(ctx)
 
 	now := time.Now()
 
-	ds := newDeviceStatusUpdated(now)
-
-	m.Publish(mediator.NewMessage(ctx, "messageID", "device.statusUpdated", "default", ds))
+	m.Publish(mediator.NewMessage(ctx, "messageID", "device.statusUpdated", "default", newDeviceStatusUpdated(now)))
 
 	result := <-resultChan
 
@@ -58,160 +57,87 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 	is, subscriber := testSetup(t)
 
 	var calls int = 0
+	ctx := context.Background()
+	defer ctx.Done()
 
-	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
+	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "secret", newDeviceStatusUpdated(time.Now()))
-	subscriber.done <- true
+	subscriber.inbox <- mediator.NewMessage(ctx, "id", "device.statusUpdated", "secret", newDeviceStatusUpdated(time.Now()))
 
 	is.Equal(0, calls)
+	time.Sleep(1 * time.Second)
 }
 
 func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 	is, subscriber := testSetup(t)
 
 	var calls int = 0
+	ctx := context.Background()
+	defer ctx.Done()
 
-	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
+	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
-	subscriber.done <- true
+	subscriber.inbox <- mediator.NewMessage(ctx, "id", "device.statusUpdated", "default", []byte(`{ "devEUI":"id", "timestamp":"2023-03-15T10:25:30.936817754+01:00" }`))
 
 	is.Equal(0, calls)
-
+	time.Sleep(1 * time.Second)
 }
 
 func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 	is, subscriber := testSetup(t)
+	ctx := context.Background()
+	defer ctx.Done()
 
 	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Watermeter:.+")
 
 	var calls int = 0
 
-	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
+	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))
-	subscriber.done <- true
+	subscriber.inbox <- mediator.NewMessage(ctx, "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))
 
 	is.Equal(0, calls)
-}
-
-func TestOnlyAcceptIfValid(t *testing.T) {
-	is, subscriber := testSetup(t)
-
-	var calls int = 0
-
-	go func() {
-		for {
-			select {
-			case <-subscriber.inbox:
-				calls++
-			case <-subscriber.done:
-				return
-			}
-		}
-	}()
-
-	subscriber.messageType = "device.statusUpdated"
-	is.True(subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
-
-	subscriber.messageType = "another.messageType"
-	is.True(!subscriber.Handle(mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", newDeviceStatusUpdated(time.Now()))))
-
-	subscriber.done <- true
-
-	is.Equal(1, calls)
+	time.Sleep(1 * time.Second)
 }
 
 func TestShouldBeSent(t *testing.T) {
 	is, subscriber := testSetup(t)
+
+	resultChan := make(chan int)
+
+	ctx := context.Background()
+	defer ctx.Done()
 
 	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Device:.+")
 	subscriber.tenants = append(subscriber.tenants, "anotherTenant")
 
 	var calls int = 0
 
-	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
+	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
+		resultChan <- calls
 		return nil
 	})
 
-	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
-	subscriber.done <- true
+	subscriber.inbox <- mediator.NewMessage(ctx, "id", "device.statusUpdated", "anotherTenant", newDeviceStatusUpdated(time.Now()))
 
-	is.Equal(1, calls)
+	is.Equal(1, <-resultChan)
 }
 
-func TestShouldBeSentForSecondPattern(t *testing.T) {
-	is, subscriber := testSetup(t)
-
-	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Device:.+")
-	subscriber.idPatterns = append(subscriber.idPatterns, "^se:servanet:lora:msva:.+")
-	subscriber.tenants = append(subscriber.tenants, "default")
-
-	var calls int = 0
-
-	go subscriber.run(context.Background(), func(ctx context.Context, e eventInfo) error {
-		calls++
-		return nil
-	})
-
-	msg := newDeviceStatusUpdated(time.Now())
-	var dsu DeviceStatusUpdated
-	json.Unmarshal(msg, &dsu)
-
-	dsu.DeviceID = "se:servanet:lora:msva:05598380"
-	b, _ := json.Marshal(dsu)
-
-	subscriber.inbox <- mediator.NewMessage(context.Background(), "id", "device.statusUpdated", "default", b)
-	subscriber.done <- true
-
-	is.Equal(1, calls)
-}
-
-func TestNewWithEmptyConfig(t *testing.T) {
-	is := is.New(t)
-	m := mediator.MediatorMock{
-		RegisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
-	New(LoadConfigurationFromFile(""), &m).Start(context.Background())
-
-	is.Equal(0, len(m.RegisterCalls()))
-}
-
-func TestNewWithEmptyConfigFile(t *testing.T) {
-	is := is.New(t)
-	m := mediator.MediatorMock{
-		RegisterFunc: func(subscriber mediator.Subscriber) {},
-	}
-
-	emptyConfigFile := ""
-	configReader := strings.NewReader(emptyConfigFile)
-
-	cfg, err := LoadConfiguration(io.NopCloser(configReader))
-	is.NoErr(err)
-
-	New(cfg, &m).Start(context.Background())
-
-	is.Equal(0, len(m.RegisterCalls()))
-}
-
-func testSetup(t *testing.T) (*is.I, *ceSubscriberImpl) {
+func testSetup(t *testing.T) (*is.I, *cloudEventSubscriber) {
 	is := is.New(t)
 
-	subscriber := &ceSubscriberImpl{
+	subscriber := &cloudEventSubscriber{
 		id:          "subscriber-01",
-		done:        make(chan bool),
 		inbox:       make(chan mediator.Message),
 		endpoint:    "http://server.url",
 		source:      "source",

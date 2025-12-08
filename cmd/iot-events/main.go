@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/application"
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
@@ -55,6 +56,8 @@ func main() {
 	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
+	ctx, cancel := context.WithCancel(ctx)
+
 	cf, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
 
@@ -82,6 +85,7 @@ func main() {
 		storageConfig:     storageConfig,
 		messengerConfig:   messengerConfig,
 		cloudeventsConfig: cloudeventsConfig,
+		cancel:            cancel,
 	}
 
 	runner, _ := initialize(ctx, flags, cfg, policies, mf)
@@ -156,6 +160,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
 			messenger.Close()
+			svcCfg.cancel()
 
 			return nil
 		}),
@@ -200,6 +205,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 func exitIf(err error, logger *slog.Logger, msg string, args ...any) {
 	if err != nil {
 		logger.With(args...).Error(msg, "err", err.Error())
+		time.Sleep(1 * time.Second)
 		os.Exit(1)
 	}
 }

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"log/slog"
 	"regexp"
 	"strings"
 	"time"
@@ -28,21 +27,31 @@ var ErrMessageBadFormat = fmt.Errorf("could not set data")
 var ErrConnRefused = fmt.Errorf("connection refused")
 
 type CloudEvents struct {
-	config *Config
-	m      mediator.Mediator
+	config      *Config
+	m           mediator.Mediator
+	subscribers map[string]*cloudEventSubscriber
 }
 
 func New(cfg *Config, m mediator.Mediator) CloudEvents {
 	return CloudEvents{
-		config: cfg,
-		m:      m,
+		config:      cfg,
+		m:           m,
+		subscribers: make(map[string]*cloudEventSubscriber),
 	}
 }
 
-func (c CloudEvents) Start(ctx context.Context) {
-	ch := make(chan string)
-	subscribers := map[string]*ceSubscriberImpl{}
+func (c CloudEvents) run(ctx context.Context, s *cloudEventSubscriber) {
+	if _, ok := c.subscribers[s.ID()]; ok {
+		return
+	}
 
+	c.m.Register(s)
+	c.subscribers[s.ID()] = s
+
+	go s.run(ctx, cloudEventSenderFunc)
+}
+
+func (c CloudEvents) Start(ctx context.Context) {
 	for i, s := range c.config.Subscribers {
 		sId := fmt.Sprintf("cloud-events-%s-%d", s.ID, i)
 
@@ -51,36 +60,22 @@ func (c CloudEvents) Start(ctx context.Context) {
 			idPatterns = append(idPatterns, e.IDPattern)
 		}
 
-		subscriber := &ceSubscriberImpl{
+		subscriber := &cloudEventSubscriber{
 			id:          sId,
 			inbox:       make(chan mediator.Message),
-			done:        make(chan bool),
 			tenants:     s.Tenants,
 			endpoint:    s.Endpoint,
 			messageType: s.Type,
 			idPatterns:  idPatterns,
 			source:      s.Source,
 			eventType:   s.EventType,
-			kill:        ch,
 		}
 
-		c.m.Register(subscriber)
-		subscribers[subscriber.id] = subscriber
-
-		go subscriber.run(ctx, cloudEventSenderFunc)
+		c.run(ctx, subscriber)
 	}
-
-	go func() {
-		for s := range ch {
-			if sub, ok := subscribers[s]; ok {
-				c.m.Unregister(sub)
-			}
-		}
-	}()
 }
 
-type ceSubscriberImpl struct {
-	done        chan bool
+type cloudEventSubscriber struct {
 	endpoint    string
 	id          string
 	idPatterns  []string
@@ -89,20 +84,18 @@ type ceSubscriberImpl struct {
 	tenants     []string
 	source      string
 	eventType   string
-	retry       int
-	kill        chan string
 }
 
-func (s *ceSubscriberImpl) ID() string {
+func (s *cloudEventSubscriber) ID() string {
 	return s.id
 }
-func (s *ceSubscriberImpl) Tenants() []string {
+func (s *cloudEventSubscriber) Tenants() []string {
 	return s.tenants
 }
-func (s *ceSubscriberImpl) Mailbox() chan mediator.Message {
+func (s *cloudEventSubscriber) Mailbox() chan mediator.Message {
 	return s.inbox
 }
-func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
+func (s *cloudEventSubscriber) Handle(m mediator.Message) bool {
 	if m.Type() != s.messageType {
 		return false
 	}
@@ -112,7 +105,7 @@ func (s *ceSubscriberImpl) Handle(m mediator.Message) bool {
 	return true
 }
 
-func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSenderFunc) {
+func (s *cloudEventSubscriber) run(ctx context.Context, eventSenderFunc CloudEventSenderFunc) {
 	contains := func(arr []string, str string) bool {
 		for _, s := range arr {
 			if strings.EqualFold(s, str) {
@@ -122,12 +115,12 @@ func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSe
 		return false
 	}
 
-	matchIfNotEmpty := func(idPatterns []string, id string) bool {
+	ifNotEmpty := func(idPatterns []string, id string) bool {
 		if len(idPatterns) == 0 {
 			return true // no configured id pattern will allow all id's
 		}
 
-		for _, idPattern := range s.idPatterns {
+		for _, idPattern := range idPatterns {
 			regexpForID, err := regexp.CompilePOSIX(idPattern)
 			if err != nil {
 				return false
@@ -141,79 +134,176 @@ func (s *ceSubscriberImpl) run(ctx context.Context, eventSenderFunc CloudEventSe
 		return false
 	}
 
-	log := logging.GetFromContext(ctx)
+	retryQueue := newFailedEventQueue(eventSenderFunc)
+	retryQueue.start(ctx)
 
 	for {
 		select {
 		case <-ctx.Done():
-			s.done <- true
-
-		case b := <-s.done:
-			log.Debug(fmt.Sprintf("Done! %t", b))
-			s.kill <- s.id
+			log := logging.GetFromContext(ctx)
+			log.Info("done!", "subscriber_id", s.id, "subscriber_type", s.messageType, "event_type", s.eventType)
 			return
 
 		case msg := <-s.inbox:
+			ctx := msg.Context()
+			ctx = logging.NewContextWithLogger(ctx, logging.GetFromContext(ctx).With("subscriber_id", s.id, "subscriber_type", s.messageType, "event_type", s.eventType))
+
+			log := logging.GetFromContext(ctx)
+
 			if !contains(s.tenants, msg.Tenant()) {
+				log.Debug("tenant not allowed", "tenant", msg.Tenant())
 				continue
 			}
 
-			logger := logging.GetFromContext(msg.Context())
-			messageBody := messageBody{}
+			m := messageBody{}
 
-			err := json.Unmarshal(msg.Data(), &messageBody)
+			err := json.Unmarshal(msg.Data(), &m)
 			if err != nil {
-				logger.Error("could not unmarshal message body", "err", err.Error())
+				log.Error("could not unmarshal message body", "err", err.Error())
 				continue
 			}
 
-			id := getIDFromMessage(messageBody)
-
-			if id == "" {
-				logger.Debug("message body missing id property", slog.String("message_type", msg.Type()))
+			if m.ID() == "" {
+				log.Debug("message body missing id property", "message_type", msg.Type())
 				continue
 			}
 
-			if !matchIfNotEmpty(s.idPatterns, id) {
+			if !ifNotEmpty(s.idPatterns, m.ID()) {
+				log.Debug("id pattern not matched", "id", m.ID())
 				continue
 			}
 
-			timestamp := time.Now().UTC()
-			if messageBody.Timestamp != nil {
-				timestamp = *messageBody.Timestamp
+			var timestamp time.Time = time.Now()
+			if m.Timestamp != nil {
+				timestamp = *m.Timestamp
 			}
 
 			ei := eventInfo{
-				id:        id,
-				timestamp: timestamp,
-				source:    s.source,
-				eventType: s.eventType,
-				endpoint:  s.endpoint,
-				data:      msg.Data(),
+				ID:        m.ID(),
+				Timestamp: timestamp.UTC(),
+				Source:    s.source,
+				EventType: s.eventType,
+				Endpoint:  s.endpoint,
+				Data:      msg.Data(),
 			}
 
 			err = eventSenderFunc(ctx, ei)
 			if err != nil {
-				logger.Error("failed to send event", "err", err.Error())
-				if errors.Is(err, ErrCloudEventClientError) {
-					s.retry++
-				}
-				if errors.Is(err, ErrConnRefused) {
-					s.retry++
-				}
-			} else {
-				s.retry = 0
-			}
-
-			if s.retry >= 10 {
-				logger.Error(fmt.Sprintf("%s has failed to send event %d times, giving up", s.id, s.retry))
-				s.done <- true
+				log.Error("failed to send event, add to retry queue", "err", err.Error())
+				retryQueue.enqueue(ei)
 			}
 		}
 	}
 }
 
-func getIDFromMessage(m messageBody) string {
+func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
+	log := logging.GetFromContext(ctx)
+
+	c, err := otelo11y.NewClientHTTP([]cehttp.Option{}, []client.Option{})
+	if err != nil {
+		return ErrCloudEventClientError
+	}
+
+	id := fmt.Sprintf("%s:%d", evt.ID, evt.Timestamp.Unix())
+
+	event := cloudevents.NewEvent()
+	event.SetID(id)
+	event.SetTime(evt.Timestamp)
+	event.SetSource(evt.Source)
+	event.SetType(evt.EventType)
+	err = event.SetData(cloudevents.ApplicationJSON, evt.Data)
+	if err != nil {
+		return ErrMessageBadFormat
+	}
+
+	ctx = cloudevents.ContextWithTarget(ctx, evt.Endpoint)
+
+	result := c.Send(ctx, event)
+	if cloudevents.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
+		return ErrConnRefused
+	}
+
+	log.Debug(fmt.Sprintf("send cloudevent %s to %s", evt.EventType, evt.Endpoint))
+
+	return nil
+}
+
+type retryEvent struct {
+	info    eventInfo
+	attempt int
+}
+
+type failedEventQueue struct {
+	sender CloudEventSenderFunc
+	queue  chan retryEvent
+	delay  time.Duration
+}
+
+func newFailedEventQueue(sender CloudEventSenderFunc) *failedEventQueue {
+	return &failedEventQueue{
+		sender: sender,
+		queue:  make(chan retryEvent, 1024),
+		delay:  250 * time.Millisecond,
+	}
+}
+
+func (q *failedEventQueue) start(ctx context.Context) {
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case evt := <-q.queue:
+				if err := q.sender(ctx, evt.info); err != nil {
+					evt.attempt++
+					delay := q.backoffDelay(evt.attempt)
+					time.AfterFunc(delay, func() {
+						select {
+						case <-ctx.Done():
+							return
+						case q.queue <- evt:
+						}
+					})
+				}
+			}
+		}
+	}()
+}
+
+func (q *failedEventQueue) enqueue(info eventInfo) {
+	q.queue <- retryEvent{info: info}
+}
+
+func (q *failedEventQueue) backoffDelay(attempt int) time.Duration {
+	shift := minInt(attempt-1, 6)
+	return q.delay << shift
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+type eventInfo struct {
+	ID        string    `json:"id"`
+	Timestamp time.Time `json:"timestamp"`
+	Source    string    `json:"source"`
+	EventType string    `json:"type"`
+	Endpoint  string    `json:"endpoint"`
+	Data      []byte    `json:"data"`
+}
+
+type messageBody struct {
+	FunctionID *string     `json:"id,omitempty"`
+	DeviceID   *string     `json:"deviceID,omitempty"`
+	SensorID   *string     `json:"sensorID,omitempty"`
+	Timestamp  *time.Time  `json:"timestamp,omitempty"`
+	Pack       *senml.Pack `json:"pack,omitempty"`
+}
+
+func (m messageBody) ID() string {
 	if m.Pack != nil {
 		rec, ok := m.Pack.GetRecord(senml.FindByName("0"))
 		if ok {
@@ -227,63 +317,11 @@ func getIDFromMessage(m messageBody) string {
 	if m.DeviceID != nil {
 		return *m.DeviceID
 	}
-
 	if m.FunctionID != nil {
 		return *m.FunctionID
 	}
-
 	if m.SensorID != nil {
 		return *m.SensorID
 	}
-
 	return ""
-}
-
-func cloudEventSenderFunc(ctx context.Context, evt eventInfo) error {
-	log := logging.GetFromContext(ctx)
-
-	c, err := otelo11y.NewClientHTTP([]cehttp.Option{}, []client.Option{})
-	if err != nil {
-		return ErrCloudEventClientError
-	}
-
-	id := fmt.Sprintf("%s:%d", evt.id, evt.timestamp.Unix())
-
-	event := cloudevents.NewEvent()
-	event.SetID(id)
-	event.SetTime(evt.timestamp)
-	event.SetSource(evt.source)
-	event.SetType(evt.eventType)
-	err = event.SetData(cloudevents.ApplicationJSON, evt.data)
-	if err != nil {
-		return ErrMessageBadFormat
-	}
-
-	ctx = cloudevents.ContextWithTarget(ctx, evt.endpoint)
-
-	result := c.Send(ctx, event)
-	if cloudevents.IsUndelivered(result) || errors.Is(result, unix.ECONNREFUSED) {
-		return ErrConnRefused
-	}
-
-	log.Debug(fmt.Sprintf("send cloudevent %s to %s", evt.eventType, evt.endpoint))
-
-	return nil
-}
-
-type eventInfo struct {
-	id        string
-	timestamp time.Time
-	source    string
-	eventType string
-	endpoint  string
-	data      []byte
-}
-
-type messageBody struct {
-	FunctionID *string     `json:"id,omitempty"`
-	DeviceID   *string     `json:"deviceID,omitempty"`
-	SensorID   *string     `json:"sensorID,omitempty"`
-	Timestamp  *time.Time  `json:"timestamp,omitempty"`
-	Pack       *senml.Pack `json:"pack,omitempty"`
 }
