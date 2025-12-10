@@ -20,6 +20,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/goccy/go-json v0.10.5 // indirect
+	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.27.3 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
@@ -86,6 +87,7 @@ require (
 	github.com/cloudevents/sdk-go/v2 v2.16.2
 	github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003
 	github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610
+	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-chi/jwtauth/v5 v5.3.1
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/matryer/is v1.4.1

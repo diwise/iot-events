@@ -16,6 +16,7 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/pkg/mqtt"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -44,6 +45,14 @@ func defaultFlags() flagMap {
 		dbPort:     "5432",
 		dbName:     "diwise",
 		dbSSLMode:  "disable",
+
+		mqttEnabled:   "false",
+		mqttBrokerUrl: "tcp://localhost:1883",
+		mqttUser:      "",
+		mqttPassword:  "",
+		mqttClientId:  "iot-events",
+		mqttInsecure:  "true",
+		mqttPrefix:    "",
 	}
 }
 
@@ -80,12 +89,14 @@ func main() {
 
 	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
 	storageConfig := storage.NewConfig(flags[dbHost], flags[dbPort], flags[dbName], flags[dbUser], flags[dbPassword], flags[dbSSLMode])
+	mqttConfig := mqtt.NewConfig(flags[mqttEnabled] == "true", flags[mqttBrokerUrl], flags[mqttUser], flags[mqttPassword], []string{}, flags[mqttClientId], flags[mqttInsecure] == "true", flags[mqttPrefix])
 
 	cfg := &appConfig{
-		storageConfig:     storageConfig,
-		messengerConfig:   messengerConfig,
+		storageConfig:     &storageConfig,
+		messengerConfig:   &messengerConfig,
 		cloudeventsConfig: cloudeventsConfig,
-		cancel:            cancel,
+		mqttConfig:        &mqttConfig,
+		cancelContextFn:   cancel,
 	}
 
 	runner, _ := initialize(ctx, flags, cfg, policies, mf)
@@ -104,6 +115,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	var s storage.Storage
 	var ce cloudevents.CloudEvents
 	var m mediator.Mediator
+	var mc mqtt.Client
 
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
@@ -123,12 +135,12 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		oninit(func(ctx context.Context, cfg *appConfig) error {
 			m = mediator.New(ctx)
 
-			s, err = storage.New(ctx, cfg.storageConfig)
+			s, err = storage.New(ctx, *cfg.storageConfig)
 			if err != nil {
 				return fmt.Errorf("could not create storage %w", err)
 			}
 
-			messenger, err = messaging.Initialize(ctx, cfg.messengerConfig)
+			messenger, err = messaging.Initialize(ctx, *cfg.messengerConfig)
 			if err != nil {
 				return fmt.Errorf("could not initialize messenger %w", err)
 			}
@@ -145,14 +157,23 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 				return fmt.Errorf("could not seed metadata %w", err)
 			}
 
+			mc, err = mqtt.NewClient(ctx, *cfg.mqttConfig)
+			if err != nil {
+				return fmt.Errorf("could not create mqtt client %w", err)
+			}
+
 			return nil
 		}),
 		onstarting(func(ctx context.Context, svcCfg *appConfig) (err error) {
-
 			m.Start(ctx)
 			ce.Start(ctx)
-			messenger.Start()
 
+			err = mqtt.Start(ctx, m, mc, svcCfg.mqttConfig.Prefix)
+			if err != nil {
+				return fmt.Errorf("could not start mqtt publisher %w", err)
+			}
+
+			messenger.Start()
 			messenger.RegisterTopicMessageHandler(flags[messengerTopic], application.NewMessageHandler(m))
 			messenger.RegisterTopicMessageHandler("message.accepted", measurements.NewMessageAcceptedHandler(s))
 
@@ -160,7 +181,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
 			messenger.Close()
-			svcCfg.cancel()
+			svcCfg.cancelContextFn()
 
 			return nil
 		}),
@@ -184,6 +205,13 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flags[dbUser] = envOrDef(ctx, "POSTGRES_USER", flags[dbUser])
 	flags[dbPassword] = envOrDef(ctx, "POSTGRES_PASSWORD", flags[dbPassword])
 	flags[dbSSLMode] = envOrDef(ctx, "POSTGRES_SSLMODE", flags[dbSSLMode])
+	flags[mqttEnabled] = envOrDef(ctx, "MQTT_ENABLED", flags[mqttEnabled])
+	flags[mqttBrokerUrl] = envOrDef(ctx, "MQTT_BROKER_URL", flags[mqttBrokerUrl])
+	flags[mqttUser] = envOrDef(ctx, "MQTT_USER", flags[mqttUser])
+	flags[mqttPassword] = envOrDef(ctx, "MQTT_PASSWORD", flags[mqttPassword])
+	flags[mqttClientId] = envOrDef(ctx, "MQTT_CLIENT_ID", flags[mqttClientId])
+	flags[mqttInsecure] = envOrDef(ctx, "MQTT_INSECURE", flags[mqttInsecure])
+	flags[mqttPrefix] = envOrDef(ctx, "MQTT_PREFIX", flags[mqttPrefix])
 
 	apply := func(f flagType) func(string) error {
 		return func(value string) error {

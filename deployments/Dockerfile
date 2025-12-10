@@ -19,7 +19,7 @@ RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build
 FROM registry.access.redhat.com/ubi9/ubi-minimal
 WORKDIR /opt/diwise
 
-LABEL org.opencontainers.image.source = "https://github.com/diwise/iot-events"
+LABEL org.opencontainers.image.source="https://github.com/diwise/iot-events"
 
 COPY --from=builder --chown=1001 /app/cmd/iot-events/iot-events /opt/diwise
 
