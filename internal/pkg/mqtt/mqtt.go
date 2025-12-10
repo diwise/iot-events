@@ -337,6 +337,8 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return
 	}
 
+	//TODO: add support for multiple values of same type (e.g. multiple temperature sensors, use "ports")
+
 	for _, rec := range pack {
 		objectID := getObjectID(rec)
 
