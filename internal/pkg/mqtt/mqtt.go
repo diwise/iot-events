@@ -6,10 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/diwise/iot-events/internal/pkg/devicemanagement"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
@@ -18,30 +20,32 @@ import (
 )
 
 type Config struct {
-	Enabled   bool
-	BrokerUrl string
-	Username  string
-	Password  string
-	Topics    []string
-	ClientId  string
-	Insecure  bool
-	Prefix    string
+	Enabled    bool
+	BrokerUrl  string
+	Username   string
+	Password   string
+	Topics     []string
+	ClientId   string
+	Insecure   bool
+	Prefix     string
+	Identifier string
 }
 
-func NewConfig(enabled bool, brokerUrl string, user string, password string, topics []string, clientId string, insecure bool, prefix string) Config {
+func NewConfig(enabled bool, brokerUrl string, user string, password string, topics []string, clientId string, insecure bool, prefix, identifier string) Config {
 	if clientId == "" {
 		clientId = uuid.NewString()
 	}
 
 	return Config{
-		Enabled:   enabled,
-		Username:  user,
-		Password:  password,
-		Topics:    topics,
-		ClientId:  clientId,
-		BrokerUrl: brokerUrl,
-		Insecure:  insecure,
-		Prefix:    prefix,
+		Enabled:    enabled,
+		Username:   user,
+		Password:   password,
+		Topics:     topics,
+		ClientId:   clientId,
+		BrokerUrl:  brokerUrl,
+		Insecure:   insecure,
+		Prefix:     prefix,
+		Identifier: identifier,
 	}
 }
 
@@ -219,27 +223,33 @@ func (t *topicMessage) ContentType() string {
 }
 
 type mqttPublisher struct {
-	m      mediator.Mediator
-	c      Client
-	prefix string
+	m          mediator.Mediator
+	mqttClient Client
+	dmc        devicemanagement.Client
+	prefix     string
+	identifier string
 }
 
-func Start(ctx context.Context, m mediator.Mediator, c Client, prefix string) error {
+func Start(ctx context.Context, m mediator.Mediator, mqttClient Client, prefix, identifier string, dmc devicemanagement.Client) error {
 	log := logging.GetFromContext(ctx)
 
-	if !c.Enabled() {
+	if !mqttClient.Enabled() {
 		log.Info("mqtt client is disabled, skipping mqtt subscriber registration")
 		return nil
 	}
 
-	p := &mqttPublisher{
-		m:      m,
-		c:      c,
-		prefix: prefix,
+	if !strings.HasSuffix(prefix, "/") {
+		prefix += "/"
 	}
 
-	c.Start(ctx)
+	p := &mqttPublisher{
+		m:          m,
+		mqttClient: mqttClient,
+		dmc:        dmc,
+		prefix:     prefix,
+	}
 
+	mqttClient.Start(ctx)
 	messageAccepted := newSubscriber("message.accepted", p.newMessageAcceptedHandler)
 	statusMessage := newSubscriber("device-status", p.newStatusMessageHandler)
 
@@ -280,16 +290,40 @@ var mapper = map[string]string{
 }
 
 func (p *mqttPublisher) publish(ctx context.Context, topic string, v any) error {
-	return p.c.Publish(ctx, newTopicMessage(topic, v))
+	return p.mqttClient.Publish(ctx, newTopicMessage(topic, v))
 }
 
 type valueMessage struct {
-	DeviceID  string    `json:"deviceID,omitempty"`
+	Device    device    `json:"device"`
 	Type      string    `json:"type"`
 	Unit      string    `json:"unit,omitempty"`
 	Timestamp time.Time `json:"timestamp"`
 	Value     any       `json:"value"`
 }
+
+type device struct {
+	DeviceID string `json:"deviceID,omitempty"`
+	SensorID string `json:"sensorID,omitempty"`
+	Name     string `json:"name,omitempty"`
+}
+
+func (d *device) Property(prop string) string {
+	switch strings.ToLower(prop) {
+	case "deviceid":
+		return d.DeviceID
+	case "sensorid":
+		return d.SensorID
+	case "name":
+		if d.Name != "" {
+			return d.Name
+		}
+		return d.DeviceID
+	default:
+		return d.DeviceID
+	}
+}
+
+var re = regexp.MustCompile(`[^A-Za-z0-9/_-]+`)
 
 func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 	ctx := m.Context()
@@ -345,23 +379,32 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return
 	}
 
-	topicIdentifier := deviceID
+	d, err := p.dmc.GetDevice(ctx, deviceID)
+	if err != nil {
+		log.Error("failed to get device", "err", err.Error())
+		return
+	}
+
+	dev := device{
+		DeviceID: d.DeviceID,
+		SensorID: d.SensorID,
+		Name:     d.Name,
+	}
+
+	topicIdentifier := re.ReplaceAllString(dev.Property(p.identifier), "-")
 
 	if port := getPort(pack); port != "" {
-		topicIdentifier = deviceID + "/" + port
+		topicIdentifier = topicIdentifier + "/" + port
 	}
 
 	for _, rec := range pack {
 		objectID := getObjectID(rec)
 
 		if name, ok := mapper[objectID]; ok {
-			var topic = fmt.Sprintf("devices/%s/%s/%s", tenant, topicIdentifier, name)
-			if p.prefix != "" {
-				topic = strings.Replace(topic, "devices/", "devices/"+p.prefix+"/", 1)
-			}
+			var topic = fmt.Sprintf("%s/%s/%s/%s", p.prefix, tenant, topicIdentifier, name)
 
 			v := valueMessage{
-				DeviceID:  deviceID,
+				Device:    dev,
 				Type:      name,
 				Unit:      rec.Unit,
 				Timestamp: time.Unix(int64(rec.Time), 0),
@@ -387,15 +430,13 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 }
 
 type statusMessage struct {
-	DeviceID string `json:"deviceID,omitempty"`
-
-	RSSI            *float64 `json:"rssi,omitempty"`
-	LoRaSNR         *float64 `json:"loRaSNR,omitempty"`
-	Frequency       *int64   `json:"frequency,omitempty"`
-	SpreadingFactor *float64 `json:"spreadingFactor,omitempty"`
-	DR              *int     `json:"dr,omitempty"`
-
-	Timestamp time.Time `json:"timestamp"`
+	Device          device    `json:"device"`
+	RSSI            *float64  `json:"rssi,omitempty"`
+	LoRaSNR         *float64  `json:"loRaSNR,omitempty"`
+	Frequency       *int64    `json:"frequency,omitempty"`
+	SpreadingFactor *float64  `json:"spreadingFactor,omitempty"`
+	DR              *int      `json:"dr,omitempty"`
+	Timestamp       time.Time `json:"timestamp"`
 }
 
 func (p *mqttPublisher) newStatusMessageHandler(m mediator.Message) {
@@ -408,18 +449,47 @@ func (p *mqttPublisher) newStatusMessageHandler(m mediator.Message) {
 		return
 	}
 
-	sm := statusMessage{}
+	topicMessage := struct {
+		DeviceID        string    `json:"deviceID,omitempty"`
+		RSSI            *float64  `json:"rssi,omitempty"`
+		LoRaSNR         *float64  `json:"loRaSNR,omitempty"`
+		Frequency       *int64    `json:"frequency,omitempty"`
+		SpreadingFactor *float64  `json:"spreadingFactor,omitempty"`
+		DR              *int      `json:"dr,omitempty"`
+		Timestamp       time.Time `json:"timestamp"`
+	}{}
 
-	err := json.Unmarshal(m.Data(), &sm)
+	err := json.Unmarshal(m.Data(), &topicMessage)
 	if err != nil {
 		log.Error("failed to unmarshal status message", "err", err.Error())
 		return
 	}
 
-	var topic = fmt.Sprintf("devices/%s/%s/status", tenant, sm.DeviceID)
-	if p.prefix != "" {
-		topic = strings.Replace(topic, "devices/", "devices/"+p.prefix+"/", 1)
+	d, err := p.dmc.GetDevice(ctx, topicMessage.DeviceID)
+	if err != nil {
+		log.Error("failed to get device", "err", err.Error())
+		return
 	}
+
+	dev := device{
+		DeviceID: d.DeviceID,
+		SensorID: d.SensorID,
+		Name:     d.Name,
+	}
+
+	sm := statusMessage{
+		Device:          dev,
+		RSSI:            topicMessage.RSSI,
+		LoRaSNR:         topicMessage.LoRaSNR,
+		Frequency:       topicMessage.Frequency,
+		SpreadingFactor: topicMessage.SpreadingFactor,
+		DR:              topicMessage.DR,
+		Timestamp:       topicMessage.Timestamp,
+	}
+
+	topicIdentifier := re.ReplaceAllString(dev.Property(p.identifier), "-")
+
+	var topic = fmt.Sprintf("%s/%s/%s/status", p.prefix, tenant, topicIdentifier)
 
 	err = p.publish(ctx, topic, sm)
 	if err != nil {

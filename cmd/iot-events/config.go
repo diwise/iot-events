@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
+	"github.com/diwise/iot-events/internal/pkg/devicemanagement"
 	"github.com/diwise/iot-events/internal/pkg/mqtt"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
@@ -37,6 +38,13 @@ const (
 	mqttClientId
 	mqttInsecure
 	mqttPrefix
+	mqttIdentifier
+
+	devMgmtUrl
+	oauth2ClientId
+	oauth2ClientSecret
+	oauth2TokenUrl
+	oauth2InsecureUrl
 )
 
 type appConfig struct {
@@ -44,6 +52,7 @@ type appConfig struct {
 	messengerConfig   *messaging.Config
 	cloudeventsConfig *cloudevents.Config
 	mqttConfig        *mqtt.Config
+	dmcConfig         *devicemanagement.Config
 	cancelContextFn   context.CancelFunc
 }
 
