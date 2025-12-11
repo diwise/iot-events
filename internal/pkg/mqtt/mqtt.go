@@ -325,6 +325,14 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return parts[0]
 	}
 
+	getPort := func(p senml.Pack) string {
+		parts := strings.Split(p[0].Name, "/")
+		if len(parts) != 4 {
+			return ""
+		}
+		return parts[1]
+	}
+
 	getObjectID := func(r senml.Record) string {
 		parts := strings.Split(r.Name, "/")
 		return fmt.Sprintf("/%s/%s", parts[len(parts)-2], parts[len(parts)-1])
@@ -337,13 +345,17 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return
 	}
 
-	//TODO: add support for multiple values of same type (e.g. multiple temperature sensors, use "ports")
+	topicIdentifier := deviceID
+
+	if port := getPort(pack); port != "" {
+		topicIdentifier = deviceID + "/" + port
+	}
 
 	for _, rec := range pack {
 		objectID := getObjectID(rec)
 
 		if name, ok := mapper[objectID]; ok {
-			var topic = fmt.Sprintf("devices/%s/%s/%s", tenant, deviceID, name)
+			var topic = fmt.Sprintf("devices/%s/%s/%s", tenant, topicIdentifier, name)
 			if p.prefix != "" {
 				topic = strings.Replace(topic, "devices/", "devices/"+p.prefix+"/", 1)
 			}
