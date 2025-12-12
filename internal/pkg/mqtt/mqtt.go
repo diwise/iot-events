@@ -8,7 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/devicemanagement"
@@ -51,10 +51,11 @@ func NewConfig(enabled bool, brokerUrl string, user string, password string, top
 
 type mqttClient struct {
 	pub     chan TopicMessage
+	errmsg  chan TopicMessage
+	close   chan struct{}
 	pc      paho.Client
-	started bool
-	mu      sync.Mutex
-	enabled bool
+	started atomic.Bool
+	enabled atomic.Bool
 }
 
 //go:generate moq -rm -out mqtt_mock.go . Client
@@ -114,35 +115,83 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 
 	pc := paho.NewClient(options)
 
-	return &mqttClient{
+	c := &mqttClient{
 		pub:     make(chan TopicMessage),
+		errmsg:  make(chan TopicMessage),
+		close:   make(chan struct{}),
 		pc:      pc,
-		started: false,
-		enabled: true,
-	}, nil
+		started: atomic.Bool{},
+		enabled: atomic.Bool{},
+	}
+
+	c.enabled.Store(true)
+
+	return c, nil
 }
 
 func (c *mqttClient) Enabled() bool {
-	return c.enabled
+	return c.enabled.Load()
 }
 
 func (c *mqttClient) Start(ctx context.Context) {
 	log := logging.GetFromContext(ctx)
 
-	if !c.enabled {
+	if !c.enabled.Load() {
 		log.Info("mqtt has been explicitly disabled with MQTT_ENABLED=false and will therefore not start")
 		return
 	}
 
 	log.Info("starting mqtt client...")
+
+	go c.retryPublish(ctx)
 	go c.run(ctx)
+}
+
+func (c *mqttClient) retryPublish(ctx context.Context) {
+	log := logging.GetFromContext(ctx)
+
+	for {
+		select {
+		case <-c.close:
+			for {
+				select {
+				case m := <-c.errmsg:
+					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+				default:
+					close(c.errmsg)
+					close(c.close)
+					return
+				}
+			}
+		case m := <-c.errmsg:
+			if m.Retry() >= 3 {
+				log.Error("dropping mqtt message after 3 failed attempts", "topic", m.TopicName())
+				continue
+			}
+
+			go func() {
+				select {
+				case <-c.close:
+					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+					return
+				default:
+					select {
+					case <-c.close:
+						return
+					default:
+						time.AfterFunc(time.Duration(m.Retry())*time.Second, func() {
+							c.pub <- m
+						})
+					}
+				}
+			}()
+		}
+	}
 }
 
 func (c *mqttClient) run(ctx context.Context) error {
 	log := logging.GetFromContext(ctx)
-	c.mu.Lock()
-	c.started = true
-	c.mu.Unlock()
+	c.started.Store(true)
 
 	connect := func() error {
 		if c.pc.IsConnectionOpen() {
@@ -160,9 +209,26 @@ func (c *mqttClient) run(ctx context.Context) error {
 	for {
 		select {
 		case <-ctx.Done():
-			c.pc.Disconnect(100)
-			return nil
+			c.started.Store(false)
+
+			for {
+				select {
+				case m := <-c.pub:
+					log.Warn("dropping message because client is shutting down...", "topic", m.TopicName())
+				default:
+					close(c.pub)
+					c.pc.Disconnect(100)
+					c.close <- struct{}{}
+					return nil
+				}
+			}
+
 		case m := <-c.pub:
+			if !c.started.Load() {
+				log.Warn("mqtt client is not started, cannot publish message", "topic", m.TopicName())
+				continue
+			}
+
 			if err := connect(); err != nil {
 				log.Error("client is not connected to broker", "err", err.Error())
 				continue
@@ -171,8 +237,10 @@ func (c *mqttClient) run(ctx context.Context) error {
 			token := c.pc.Publish(m.TopicName(), 0, false, m.Body())
 			token.Wait()
 
-			if token.Error() != nil {
-				log.Error("failed to publish mqtt message", "topic", m.TopicName(), "err", token.Error())
+			if err := token.Error(); err != nil {
+				log.Error("failed to publish mqtt message", "topic", m.TopicName(), "err", err.Error())
+				m.Err(err)
+				c.errmsg <- m
 			} else {
 				log.Debug("mqtt message published", "topic", m.TopicName())
 			}
@@ -183,7 +251,7 @@ func (c *mqttClient) run(ctx context.Context) error {
 func (c *mqttClient) Publish(ctx context.Context, msg TopicMessage) error {
 	log := logging.GetFromContext(ctx)
 
-	if !c.started {
+	if !c.started.Load() {
 		log.Warn("mqtt client not started, cannot publish message", "topic", msg.TopicName())
 		return fmt.Errorf("mqtt client not started")
 	}
@@ -197,6 +265,8 @@ type TopicMessage interface {
 	Body() []byte
 	ContentType() string
 	TopicName() string
+	Retry() int
+	Err(err error)
 }
 
 func newTopicMessage(topic string, payload any) TopicMessage {
@@ -209,6 +279,15 @@ func newTopicMessage(topic string, payload any) TopicMessage {
 type topicMessage struct {
 	topic   string
 	payload any
+	retry   int
+}
+
+func (t *topicMessage) Err(err error) {
+	t.retry++
+}
+
+func (t *topicMessage) Retry() int {
+	return t.retry
 }
 
 func (t *topicMessage) Body() []byte {
@@ -238,15 +317,14 @@ func Start(ctx context.Context, m mediator.Mediator, mqttClient Client, prefix, 
 		return nil
 	}
 
-	if !strings.HasSuffix(prefix, "/") {
-		prefix += "/"
-	}
+	prefix = strings.TrimSuffix(prefix, "/")
 
 	p := &mqttPublisher{
 		m:          m,
 		mqttClient: mqttClient,
 		dmc:        dmc,
 		prefix:     prefix,
+		identifier: identifier,
 	}
 
 	mqttClient.Start(ctx)
@@ -355,11 +433,18 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 	pack.Normalize()
 
 	getDeviceID := func(p senml.Pack) string {
+		if len(p) == 0 {
+			return ""
+		}
 		parts := strings.Split(p[0].Name, "/")
 		return parts[0]
 	}
 
 	getPort := func(p senml.Pack) string {
+		if len(p) == 0 {
+			return ""
+		}
+
 		parts := strings.Split(p[0].Name, "/")
 		if len(parts) != 4 {
 			return ""
@@ -369,6 +454,11 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 
 	getObjectID := func(r senml.Record) string {
 		parts := strings.Split(r.Name, "/")
+
+		if len(parts) < 2 {
+			return ""
+		}
+
 		return fmt.Sprintf("/%s/%s", parts[len(parts)-2], parts[len(parts)-1])
 	}
 

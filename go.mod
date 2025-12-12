@@ -57,7 +57,6 @@ require (
 	github.com/yashtewari/glob-intersection v0.2.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/bridges/otelslog v0.14.0 // indirect
-	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp v0.15.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetrichttp v1.39.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.39.0 // indirect
@@ -78,7 +77,7 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20251202230838-ff82c1b0f217 // indirect
 	google.golang.org/grpc v1.77.0 // indirect
-	google.golang.org/protobuf v1.36.10 // indirect
+	google.golang.org/protobuf v1.36.11 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	sigs.k8s.io/yaml v1.6.0 // indirect
 )
@@ -93,6 +92,7 @@ require (
 	github.com/jackc/pgx/v5 v5.7.6
 	github.com/matryer/is v1.4.1
 	github.com/open-policy-agent/opa v1.11.0
+	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.64.0
 	go.opentelemetry.io/otel/trace v1.39.0
 	golang.org/x/oauth2 v0.34.0
 	golang.org/x/sys v0.39.0
