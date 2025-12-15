@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/diwise/iot-events/internal/pkg/cloudevents"
+	"github.com/diwise/iot-events/internal/pkg/devicemanagement"
+	"github.com/diwise/iot-events/internal/pkg/mqtt"
 	"github.com/diwise/iot-events/internal/pkg/storage"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
@@ -28,13 +30,30 @@ const (
 	dbSSLMode
 
 	metadataFile
+
+	mqttEnabled
+	mqttBrokerUrl
+	mqttUser
+	mqttPassword
+	mqttClientId
+	mqttInsecure
+	mqttPrefix
+	mqttIdentifier
+
+	devMgmtUrl
+	oauth2ClientId
+	oauth2ClientSecret
+	oauth2TokenUrl
+	oauth2InsecureUrl
 )
 
 type appConfig struct {
-	storageConfig     storage.Config
-	messengerConfig   messaging.Config
+	storageConfig     *storage.Config
+	messengerConfig   *messaging.Config
 	cloudeventsConfig *cloudevents.Config
-	cancel            context.CancelFunc
+	mqttConfig        *mqtt.Config
+	dmcConfig         *devicemanagement.Config
+	cancelContextFn   context.CancelFunc
 }
 
 var oninit = servicerunner.OnInit[appConfig]

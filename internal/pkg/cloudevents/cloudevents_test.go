@@ -20,7 +20,7 @@ import (
 func TestThatCloudEventIsSent(t *testing.T) {
 	is := is.New(t)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	ctx := logging.NewContextWithLogger(context.Background(), logger)
+	ctx := logging.NewContextWithLogger(t.Context(), logger)
 	defer ctx.Done()
 
 	resultChan := make(chan string)
@@ -38,7 +38,7 @@ func TestThatCloudEventIsSent(t *testing.T) {
 	is.NoErr(err)
 
 	m := mediator.New(ctx)
-	go m.Start(ctx)
+	m.Start(ctx)
 
 	cloudEvents := New(cfg, m)
 	cloudEvents.Start(ctx)
@@ -57,8 +57,7 @@ func TestShouldNotBeSentIfTenantIsNotAllowed(t *testing.T) {
 	is, subscriber := testSetup(t)
 
 	var calls int = 0
-	ctx := context.Background()
-	defer ctx.Done()
+	ctx := t.Context()
 
 	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
@@ -75,8 +74,7 @@ func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 	is, subscriber := testSetup(t)
 
 	var calls int = 0
-	ctx := context.Background()
-	defer ctx.Done()
+	ctx := t.Context()
 
 	go subscriber.run(ctx, func(ctx context.Context, e eventInfo) error {
 		calls++
@@ -91,8 +89,7 @@ func TestShouldNotBeSentIfMessageBodyContainsNoDeviceID(t *testing.T) {
 
 func TestShouldNotBeSentIfIdPatternIsNotMatched(t *testing.T) {
 	is, subscriber := testSetup(t)
-	ctx := context.Background()
-	defer ctx.Done()
+	ctx := t.Context()
 
 	subscriber.idPatterns = append(subscriber.idPatterns, "^urn:ngsi-ld:Watermeter:.+")
 
