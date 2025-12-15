@@ -56,7 +56,7 @@ func defaultFlags() flagMap {
 		mqttPrefix:     "devices/",
 		mqttIdentifier: "deviceID",
 
-		devMgmtUrl:         "",
+		devMgmtUrl:         "http://iot-device-mgmt",
 		oauth2TokenUrl:     "",
 		oauth2ClientId:     "",
 		oauth2ClientSecret: "",
