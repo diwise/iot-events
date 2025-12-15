@@ -221,7 +221,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flags[dbUser] = envOrDef(ctx, "POSTGRES_USER", flags[dbUser])
 	flags[dbPassword] = envOrDef(ctx, "POSTGRES_PASSWORD", flags[dbPassword])
 	flags[dbSSLMode] = envOrDef(ctx, "POSTGRES_SSLMODE", flags[dbSSLMode])
-	
+
 	flags[mqttEnabled] = envOrDef(ctx, "MQTT_ENABLED", flags[mqttEnabled])
 	flags[mqttBrokerUrl] = envOrDef(ctx, "MQTT_BROKER_URL", flags[mqttBrokerUrl])
 	flags[mqttUser] = envOrDef(ctx, "MQTT_USER", flags[mqttUser])
@@ -235,7 +235,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flags[oauth2TokenUrl] = envOrDef(ctx, "OAUTH2_TOKEN_URL", flags[oauth2TokenUrl])
 	flags[oauth2ClientId] = envOrDef(ctx, "OAUTH2_CLIENT_ID", flags[oauth2ClientId])
 	flags[oauth2ClientSecret] = envOrDef(ctx, "OAUTH2_CLIENT_SECRET", flags[oauth2ClientSecret])
-	flags[oauth2InsecureUrl] = envOrDef(ctx, "OAUTH2_INSECURE_URL", flags[oauth2InsecureUrl])
+	flags[oauth2InsecureUrl] = envOrDef(ctx, "OAUTH2_REALM_INSECURE", flags[oauth2InsecureUrl])
 
 	apply := func(f flagType) func(string) error {
 		return func(value string) error {
