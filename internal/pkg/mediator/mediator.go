@@ -3,6 +3,7 @@ package mediator
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
@@ -22,7 +23,8 @@ type mediatorImpl struct {
 	unregister  chan Subscriber
 	subscribers map[string]Subscriber
 	subMu       sync.RWMutex
-	startOnce   sync.Once
+	ctx         context.Context
+	running     atomic.Bool
 }
 
 func New(ctx context.Context) Mediator {
@@ -31,64 +33,103 @@ func New(ctx context.Context) Mediator {
 		register:    make(chan Subscriber),
 		unregister:  make(chan Subscriber),
 		subscribers: map[string]Subscriber{},
+		ctx:         ctx,
 	}
 }
 
 func (m *mediatorImpl) Register(s Subscriber) {
-	m.register <- s
+	log := logging.GetFromContext(m.ctx)
+
+	if !m.running.Load() {
+		log.Warn("mediator is not running, cannot register subscriber", "subscriber_id", s.ID())
+		return
+	}
+
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+		m.register <- s
+	}
 }
 
 func (m *mediatorImpl) Unregister(s Subscriber) {
-	m.unregister <- s
+	if !m.running.Load() {
+		return
+	}
+
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+		m.unregister <- s
+	}
 }
 
 func (m *mediatorImpl) Publish(msg Message) {
-	m.inbox <- msg
+	log := logging.GetFromContext(m.ctx)
+
+	if !m.running.Load() {
+		log.Warn("mediator is not running, dropping message", "message_id", msg.ID())
+		return
+	}
+
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+		m.inbox <- msg
+	}
 }
 
 func (m *mediatorImpl) Start(ctx context.Context) {
-	m.startOnce.Do(func() {
+	m.running.Store(true)
+	go m.run(ctx)
+}
 
-		log := logging.GetFromContext(ctx)
+func (m *mediatorImpl) run(ctx context.Context) {
+	log := logging.GetFromContext(ctx)
 
-		go func() {
-			for {
-				select {
-				case <-ctx.Done():
-					return
+	defer m.running.Store(false)
 
-				case s := <-m.register:
-					m.subMu.Lock()
-					m.subscribers[s.ID()] = s
-					total := len(m.subscribers)
-					m.subMu.Unlock()
-					log.Debug("register new subscriber", "subscriber_id", s.ID(), "total", total)
+	for {
+		select {
+		case <-ctx.Done():
+			return
 
-				case s := <-m.unregister:
-					m.subMu.Lock()
-					delete(m.subscribers, s.ID())
-					total := len(m.subscribers)
-					m.subMu.Unlock()
-					log.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", total)
+		case <-m.ctx.Done():
+			return
 
-				case msg := <-m.inbox:
-					log := logging.GetFromContext(msg.Context())
-					log.Debug("publishing message to subscribers", "message_id", msg.ID())
+		case s := <-m.register:
+			m.subMu.Lock()
+			m.subscribers[s.ID()] = s
+			total := len(m.subscribers)
+			m.subMu.Unlock()
+			log.Debug("register new subscriber", "subscriber_id", s.ID(), "total", total)
 
-					m.subMu.RLock()
-					subs := make([]Subscriber, 0, len(m.subscribers))
-					for _, sub := range m.subscribers {
-						subs = append(subs, sub)
-					}
-					m.subMu.RUnlock()
+		case s := <-m.unregister:
+			m.subMu.Lock()
+			delete(m.subscribers, s.ID())
+			total := len(m.subscribers)
+			m.subMu.Unlock()
+			log.Debug("unregister subscriber", "subscriber_id", s.ID(), "total", total)
 
-					for _, sub := range subs {
-						go func(handler Subscriber) {
-							handler.Handle(msg)
-						}(sub)
-					}
-				}
+		case msg := <-m.inbox:
+			log := logging.GetFromContext(msg.Context())
+			log.Debug("publishing message to subscribers", "message_id", msg.ID())
+
+			m.subMu.RLock()
+			subs := make([]Subscriber, 0, len(m.subscribers))
+			for _, sub := range m.subscribers {
+				subs = append(subs, sub)
 			}
-		}()
-	})
+			m.subMu.RUnlock()
+
+			for _, sub := range subs {
+				go func(handler Subscriber) {
+					handler.Handle(msg)
+				}(sub)
+			}
+		}
+	}
 }

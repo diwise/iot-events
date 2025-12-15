@@ -4,19 +4,14 @@ import (
 	"context"
 	"io"
 	"log/slog"
-	"sync/atomic"
 	"testing"
-	"time"
 
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/matryer/is"
 )
 
-const TimeUntilMessagesHaveBeenProcessed time.Duration = 100 * time.Millisecond
-
 func TestThatTheInnerLoopStopsWhenContextIsDone(t *testing.T) {
-	_, ctx, _ := testSetup(t)
-	ctx.Done()
+	testSetup(t)
 }
 
 func TestPublishToValidSubscribers(t *testing.T) {
@@ -25,18 +20,18 @@ func TestPublishToValidSubscribers(t *testing.T) {
 	valid := NewSubscriber([]string{"default"})
 	invalid := NewSubscriber([]string{"unknown"})
 
-	validCalls := &atomic.Int32{}
-	invalidCalls := &atomic.Int32{}
+	done := make(chan struct{})
 
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-valid.Mailbox():
-				validCalls.Add(1)
+			case m := <-valid.Mailbox():
+				is.Equal("id", m.ID())
+				done <- struct{}{}
 			case <-invalid.Mailbox():
-				invalidCalls.Add(1)
+				t.Fail()
 			}
 		}
 	}()
@@ -44,27 +39,18 @@ func TestPublishToValidSubscribers(t *testing.T) {
 	m.Register(valid)
 	m.Register(invalid)
 
-	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
+	m.Publish(NewMessage(ctx, "id", "message.type", "default", []byte("{}")))
 
-	m.Publish(NewMessage(context.Background(), "id", "message.type", "default", []byte("{}")))
-
-	time.Sleep(TimeUntilMessagesHaveBeenProcessed)
-
-	is.Equal(int32(1), validCalls.Load())
-	is.Equal(int32(0), invalidCalls.Load())
-
-	ctx.Done()
+	<-done
 }
 
 func testSetup(t *testing.T) (*is.I, context.Context, Mediator) {
 	is := is.New(t)
-	ctx := context.Background()
 
-	ctx = logging.NewContextWithLogger(ctx, slog.New(slog.NewTextHandler(io.Discard, nil)))
-
+	ctx := logging.NewContextWithLogger(t.Context(), slog.New(slog.NewTextHandler(io.Discard, nil)))
+	
 	m := New(ctx)
-
-	go m.Start(ctx)
+	m.Start(ctx)
 
 	return is, ctx, m
 }
