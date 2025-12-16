@@ -429,6 +429,11 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return
 	}
 
+	if err := topicMessage.Pack.Validate(); err != nil {
+		log.Error("invalid senml pack", "err", err.Error())
+		return
+	}
+
 	pack := topicMessage.Pack.Clone()
 	pack.Normalize()
 
