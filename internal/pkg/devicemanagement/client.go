@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -26,6 +27,7 @@ type Device struct {
 
 type Config struct {
 	DevMgmtUrl         string
+	UseAuth            bool
 	OAuth2TokenURL     string
 	OAuthInsecureUrl   bool
 	OAuth2ClientID     string
@@ -35,6 +37,7 @@ type Config struct {
 func NewConfig(devMgmtUrl, oauth2TokenURL string, oauthInsecureUrl bool, oauth2ClientID, oauth2ClientSecret string) Config {
 	return Config{
 		DevMgmtUrl:         devMgmtUrl,
+		UseAuth:            true,
 		OAuth2TokenURL:     oauth2TokenURL,
 		OAuthInsecureUrl:   oauthInsecureUrl,
 		OAuth2ClientID:     oauth2ClientID,
@@ -48,7 +51,8 @@ type client struct {
 	clientCredentials *clientcredentials.Config
 	keepRunning       *atomic.Bool
 	queue             chan func()
-	knownDevices      map[string]*Device
+	knownDevices      sync.Map
+	useAuth           bool
 }
 
 var tracer = otel.Tracer("iot-events/devicemanagement")
@@ -82,13 +86,15 @@ func New(ctx context.Context, cfg *Config) (Client, error) {
 
 	ctx = context.WithValue(ctx, oauth2.HTTPClient, httpClient)
 
-	token, err := oauthConfig.Token(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get client credentials from %s: %w", oauthConfig.TokenURL, err)
-	}
+	if cfg.UseAuth {
+		token, err := oauthConfig.Token(ctx)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get client credentials from %s: %w", oauthConfig.TokenURL, err)
+		}
 
-	if !token.Valid() {
-		return nil, fmt.Errorf("an invalid token was returned from %s", cfg.OAuth2TokenURL)
+		if !token.Valid() {
+			return nil, fmt.Errorf("an invalid token was returned from %s", cfg.OAuth2TokenURL)
+		}
 	}
 
 	c := &client{
@@ -97,7 +103,8 @@ func New(ctx context.Context, cfg *Config) (Client, error) {
 		httpClient:        *httpClient,
 		keepRunning:       &atomic.Bool{},
 		queue:             make(chan func()),
-		knownDevices:      make(map[string]*Device),
+		knownDevices:      sync.Map{},
+		useAuth:           cfg.UseAuth,
 	}
 
 	go c.run(ctx)
@@ -139,9 +146,12 @@ var ErrNotFound error = errors.New("not found")
 var errInternal error = errors.New("internal error")
 var errRetry error = errors.New("retry")
 
+type retryKey string
+
 func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error) {
-	if dev, ok := c.knownDevices[deviceID]; ok {
-		return dev, nil
+	device, ok := c.knownDevices.Load(deviceID)
+	if ok {
+		return device.(*Device), nil
 	}
 
 	resultchan := make(chan Device)
@@ -159,13 +169,15 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 			return
 		}
 
-		token, err := c.refreshToken(ctx)
-		if err != nil {
-			errchan <- fmt.Errorf("failed to refresh token: %w", err)
-			return
-		}
+		if c.useAuth {
+			token, err := c.refreshToken(ctx)
+			if err != nil {
+				errchan <- fmt.Errorf("failed to refresh token: %w", err)
+				return
+			}
 
-		req.Header.Add("Authorization", "Bearer "+token.AccessToken)
+			req.Header.Add("Authorization", "Bearer "+token.AccessToken)
+		}
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
@@ -176,6 +188,11 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 
 		if resp.StatusCode == http.StatusNotFound {
 			errchan <- ErrNotFound
+			return
+		}
+
+		if resp.StatusCode == http.StatusUnauthorized {
+			errchan <- errRetry
 			return
 		}
 
@@ -200,11 +217,24 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 
 	select {
 	case d := <-resultchan:
-		c.knownDevices[deviceID] = &d
+		c.knownDevices.Store(deviceID, &d)
 		return &d, nil
 	case e := <-errchan:
 		if errors.Is(e, errRetry) {
-			time.Sleep(10 * time.Millisecond)
+			retryCount, ok := ctx.Value(retryKey("retry-count")).(int)
+			if !ok {
+				retryCount = 0
+			}
+
+			if retryCount >= 3 {
+				return nil, fmt.Errorf("max retry attempts reached for device %s: %w", deviceID, e)
+			}
+
+			retryCount++
+			ctx = context.WithValue(ctx, retryKey("retry-count"), retryCount)
+
+			time.Sleep(100 * time.Millisecond)
+
 			return c.GetDevice(ctx, deviceID)
 		}
 		return nil, e

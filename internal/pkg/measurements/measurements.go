@@ -107,8 +107,6 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 			err := errors.Join(errs...)
 			log.Error("errors occurred while storing measurements", "err", err.Error())
 			return
-		}
-
-		log.Debug("measurements stored successfully")
+		}		
 	}
 }

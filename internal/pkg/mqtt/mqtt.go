@@ -525,8 +525,6 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 			}
 
 			log.Debug("mqtt message published", "topic", topic)
-		} else {
-			log.Debug("no mapping found for object id, skipping...", "object_id", objectID)
 		}
 	}
 }
