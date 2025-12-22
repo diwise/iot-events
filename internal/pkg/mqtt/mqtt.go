@@ -69,6 +69,7 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 	log := logging.GetFromContext(ctx)
 
 	if !cfg.Enabled {
+		log.Info("MQTT client is disabled")
 		return &ClientMock{
 			StartFunc: func(ctx context.Context) {},
 			PublishFunc: func(ctx context.Context, msg TopicMessage) error {
@@ -150,6 +151,8 @@ func (c *mqttClient) Start(ctx context.Context) {
 func (c *mqttClient) retryPublish(ctx context.Context) {
 	log := logging.GetFromContext(ctx)
 
+	log.Debug("starting MQTT retry channel...")
+
 	for {
 		select {
 		case <-c.close:
@@ -205,6 +208,8 @@ func (c *mqttClient) run(ctx context.Context) error {
 
 		return nil
 	}
+
+	log.Debug("MQTT client is running...")
 
 	for {
 		select {
@@ -520,6 +525,8 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 			}
 
 			log.Debug("mqtt message published", "topic", topic)
+		} else {
+			log.Debug("no mapping found for object id, skipping...", "object_id", objectID)
 		}
 	}
 }
