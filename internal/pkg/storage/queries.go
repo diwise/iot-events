@@ -54,7 +54,13 @@ func (s storageImpl) QueryWithMetadata(ctx context.Context, q measurements.Query
 
 	log.Debug("QueryWithMetadata", slog.String("sql", sql), slog.Any("args", qa.Args))
 
-	rows, err := s.conn.Query(ctx, sql, qa.Args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, qa.Args)
 	if err != nil {
 		return errorResult("%s", err.Error())
 	}
@@ -356,7 +362,13 @@ func (s storageImpl) aggrQuery(ctx context.Context, q measurements.QueryParams, 
 
 	log.Debug("aggrQuery", slog.String("sql", sql), slog.Any("args", args))
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("query failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
@@ -466,7 +478,13 @@ func (s storageImpl) rateQuery(ctx context.Context, q measurements.QueryParams, 
 
 	now := time.Now()
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("rateQuery failed", "err", err.Error())
 		return errorResult("%s", err.Error())
@@ -538,8 +556,14 @@ func (s storageImpl) countQuery(ctx context.Context, q measurements.QueryParams,
 
 	log.Debug("countQuery", slog.String("sql", sql), slog.Any("args", args))
 
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
 	var n uint64
-	err := s.conn.QueryRow(ctx, sql, args).Scan(&n)
+	err = c.QueryRow(ctx, sql, args).Scan(&n)
 	if err != nil {
 		if !errors.Is(err, pgx.ErrNoRows) {
 			log.Debug("countQuery failed", "err", err.Error())
@@ -583,7 +607,13 @@ func (s storageImpl) QueryObject(ctx context.Context, deviceID, urn string, tena
 
 	log.Debug("QueryObject", slog.String("sql", sql), slog.Any("args", args))
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return errorResult("%s", err.Error())
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("QueryObject failed", slog.String("sql", sql), slog.Any("args", args))
 		return errorResult("%s", err.Error())
@@ -697,7 +727,13 @@ func (s storageImpl) Fetch(ctx context.Context, deviceID string, q measurements.
 
 	now := time.Now()
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return map[string][]measurements.Value{}, err
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("Fetch failed", slog.String("sql", sql), slog.Any("args", args))
 		return map[string][]measurements.Value{}, err
@@ -764,7 +800,13 @@ func (s storageImpl) FetchLatest(ctx context.Context, deviceID string, tenants [
 
 	now := time.Now()
 
-	rows, err := s.conn.Query(ctx, sql, args)
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return []measurements.Value{}, err
+	}
+	defer c.Release()
+
+	rows, err := c.Query(ctx, sql, args)
 	if err != nil {
 		log.Debug("FetchLatest failed", slog.String("sql", sql), slog.Any("args", args))
 		return []measurements.Value{}, err
