@@ -168,7 +168,29 @@ func New(ctx context.Context, config Config) (Storage, error) {
 }
 
 func connect(ctx context.Context, config Config) (*pgxpool.Pool, error) {
-	p, err := pgxpool.New(ctx, config.ConnStr())
+	poolConfig, err := pgxpool.ParseConfig(config.ConnStr())
+	if err != nil {
+		return nil, err
+	}
+
+	// Configure connection pool to prevent "too many clients" issues
+	poolConfig.MaxConns = int32(config.MaxConns())
+	poolConfig.MinConns = int32(config.MinConns())
+	poolConfig.MaxConnIdleTime = config.MaxConnIdleTime()
+	poolConfig.MaxConnLifetime = config.MaxConnLifetime()
+	poolConfig.HealthCheckPeriod = config.HealthCheckPeriod()
+	poolConfig.ConnConfig.RuntimeParams["application_name"] = "iot-events"
+
+	log := logging.GetFromContext(ctx)
+	log.Info("configuring database connection pool",
+		slog.Int("max_conns", int(poolConfig.MaxConns)),
+		slog.Int("min_conns", int(poolConfig.MinConns)),
+		slog.Duration("max_conn_idle_time", poolConfig.MaxConnIdleTime),
+		slog.Duration("max_conn_lifetime", poolConfig.MaxConnLifetime),
+		slog.Duration("health_check_period", poolConfig.HealthCheckPeriod),
+	)
+
+	p, err := pgxpool.NewWithConfig(ctx, poolConfig)
 	if err != nil {
 		return nil, err
 	}
