@@ -52,7 +52,7 @@ func NewConfig(enabled bool, brokerUrl string, user string, password string, top
 type mqttClient struct {
 	pub     chan TopicMessage
 	errmsg  chan TopicMessage
-	close   chan struct{}
+	done    chan struct{}
 	pc      paho.Client
 	started atomic.Bool
 	enabled atomic.Bool
@@ -119,7 +119,7 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 	c := &mqttClient{
 		pub:     make(chan TopicMessage),
 		errmsg:  make(chan TopicMessage),
-		close:   make(chan struct{}),
+		done:    make(chan struct{}),
 		pc:      pc,
 		started: atomic.Bool{},
 		enabled: atomic.Bool{},
@@ -155,14 +155,12 @@ func (c *mqttClient) retryPublish(ctx context.Context) {
 
 	for {
 		select {
-		case <-c.close:
+		case <-c.done:
 			for {
 				select {
 				case m := <-c.errmsg:
 					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
 				default:
-					close(c.errmsg)
-					close(c.close)
 					return
 				}
 			}
@@ -172,22 +170,21 @@ func (c *mqttClient) retryPublish(ctx context.Context) {
 				continue
 			}
 
-			go func() {
+			go func(msg TopicMessage) {
 				select {
-				case <-c.close:
-					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+				case <-c.done:
+					log.Warn("dropping failed message because client is shutting down...", "topic", msg.TopicName())
 					return
 				default:
-					select {
-					case <-c.close:
-						return
-					default:
-						time.AfterFunc(time.Duration(m.Retry())*time.Second, func() {
-							c.pub <- m
-						})
-					}
+					time.AfterFunc(time.Duration(msg.Retry())*time.Second, func() {
+						select {
+						case <-c.done:
+							log.Warn("dropping failed message because client is shutting down...", "topic", msg.TopicName())
+						case c.pub <- msg:
+						}
+					})
 				}
-			}()
+			}(m)
 		}
 	}
 }
@@ -215,6 +212,11 @@ func (c *mqttClient) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			c.started.Store(false)
+			select {
+			case <-c.done:
+			default:
+				close(c.done)
+			}
 
 			for {
 				select {
@@ -223,7 +225,6 @@ func (c *mqttClient) run(ctx context.Context) error {
 				default:
 					close(c.pub)
 					c.pc.Disconnect(100)
-					c.close <- struct{}{}
 					return nil
 				}
 			}
@@ -261,7 +262,12 @@ func (c *mqttClient) Publish(ctx context.Context, msg TopicMessage) error {
 		return fmt.Errorf("mqtt client not started")
 	}
 
-	c.pub <- msg
+	select {
+	case <-c.done:
+		log.Warn("mqtt client is shutting down, cannot publish message", "topic", msg.TopicName())
+		return fmt.Errorf("mqtt client is shutting down")
+	case c.pub <- msg:
+	}
 
 	return nil
 }
