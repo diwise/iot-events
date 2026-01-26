@@ -116,9 +116,6 @@ func main() {
 }
 
 func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile io.ReadCloser, metadataFile io.ReadCloser) (servicerunner.Runner[appConfig], error) {
-	defer policiesFile.Close()
-	defer metadataFile.Close()
-
 	var err error
 
 	var messenger messaging.MsgContext
@@ -139,11 +136,13 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
+				defer policiesFile.Close()
 				api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
 				return nil
 			}),
 		),
 		oninit(func(ctx context.Context, cfg *appConfig) error {
+			defer metadataFile.Close()
 			m = mediator.New(ctx)
 
 			s, err = storage.New(ctx, *cfg.storageConfig)
