@@ -133,6 +133,11 @@ func (q QueryParams) Parse() (QueryArgs, error) {
 			qa.Offset = uint64(i)
 			n["offset"] = qa.Offset
 		case "name":
+			if len(v) > 1 {
+				s = append(s, "e.n=ANY(@name)")
+				n["name"] = v
+				continue
+			}
 			s = append(s, "e.n=@name")
 			n["name"] = v[0]
 		default:
@@ -158,7 +163,7 @@ func (q QueryParams) Parse() (QueryArgs, error) {
 
 			if len(v) > 1 {
 				s = append(s, fmt.Sprintf("e.%s=ANY(@%s)", k, k))
-				n["@"+k] = v
+				n[k] = v
 				continue
 			}
 

@@ -64,6 +64,33 @@ func TestParseQueryParamsNamedArgs(t *testing.T) {
 	is.True(strings.Contains(qa.Where, "key4=@key4"))
 }
 
+func TestParseQueryParamsNameMultiValue(t *testing.T) {
+	is := is.New(t)
+	q := ParseQuery(map[string][]string{
+		"name": {"alpha", "beta"},
+	})
+
+	qa, err := q.Parse()
+	is.NoErr(err)
+	is.True(strings.Contains(qa.Where, "e.n=ANY(@name)"))
+
+	values, ok := qa.Args["name"].([]string)
+	is.True(ok)
+	is.Equal(values, []string{"alpha", "beta"})
+}
+
+func TestParseQueryParamsNameSingleValue(t *testing.T) {
+	is := is.New(t)
+	q := ParseQuery(map[string][]string{
+		"name": {"alpha"},
+	})
+
+	qa, err := q.Parse()
+	is.NoErr(err)
+	is.True(strings.Contains(qa.Where, "e.n=@name"))
+	is.Equal(qa.Args["name"], "alpha")
+}
+
 func TestParseQueryParamsTimeRel(t *testing.T) {
 	is := is.New(t)
 	q := ParseQuery(map[string][]string{
