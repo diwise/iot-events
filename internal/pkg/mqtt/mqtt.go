@@ -263,6 +263,9 @@ func (c *mqttClient) Publish(ctx context.Context, msg TopicMessage) error {
 	}
 
 	select {
+	case <-ctx.Done():
+		log.Warn("publish context canceled", "topic", msg.TopicName())
+		return ctx.Err()
 	case <-c.done:
 		log.Warn("mqtt client is shutting down, cannot publish message", "topic", msg.TopicName())
 		return fmt.Errorf("mqtt client is shutting down")

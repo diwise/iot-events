@@ -3,6 +3,7 @@ package mqtt
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -237,3 +238,40 @@ func int64Ptr(i int64) *int64 {
 func intPtr(i int) *int {
 	return &i
 }
+
+
+func TestRetryPublishShutdownDoesNotSendOnClosedChannel(t *testing.T) {
+	is := is.New(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	c := &mqttClient{
+		pub:     make(chan TopicMessage),
+		errmsg:  make(chan TopicMessage, 1),
+		done:    make(chan struct{}),
+		started: atomic.Bool{},
+	}
+
+	go c.retryPublish(ctx)
+
+	msg := &topicMessage{topic: "t", payload: "p", retry: 1}
+	c.errmsg <- msg
+
+	deadline := time.After(200 * time.Millisecond)
+	for len(c.errmsg) > 0 {
+		select {
+		case <-deadline:
+			is.Fail()
+			return
+		default:
+			time.Sleep(1 * time.Millisecond)
+		}
+	}
+
+	close(c.done)
+	close(c.pub)
+
+	time.Sleep(1100 * time.Millisecond)
+}
+
+// no helpers
