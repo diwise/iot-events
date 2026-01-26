@@ -254,10 +254,7 @@ func (s storageImpl) Query(ctx context.Context, q measurements.QueryParams, tena
 	}
 
 	m.DeviceID = device_id
-	if location.P.Y > 0.0 && location.P.X > 0.0 {
-		m.Lat = &location.P.Y
-		m.Lon = &location.P.X
-	}
+	applyLocationToResult(location, &m)
 	m.Name = n
 	m.Tenant = tenant
 	m.Urn = urn
@@ -281,6 +278,15 @@ func (s storageImpl) Query(ctx context.Context, q measurements.QueryParams, tena
 		TotalCount: total_count,
 		Error:      nil,
 	}
+}
+
+func applyLocationToResult(location pgtype.Point, result *measurements.MeasurementResult) {
+	if !location.Valid {
+		return
+	}
+
+	result.Lat = &location.P.Y
+	result.Lon = &location.P.X
 }
 
 func (s storageImpl) aggrQuery(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
