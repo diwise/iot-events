@@ -612,9 +612,11 @@ type mqttSubscriber struct {
 	handler func(mediator.Message)
 }
 
+const subscriberInboxBuffer = 64
+
 func newSubscriber(topic string, handlerFunc func(mediator.Message)) *mqttSubscriber {
 	return &mqttSubscriber{
-		inbox:   make(chan mediator.Message),
+		inbox:   make(chan mediator.Message, subscriberInboxBuffer),
 		topic:   topic,
 		handler: handlerFunc,
 	}
@@ -641,7 +643,12 @@ func (s *mqttSubscriber) Mailbox() chan mediator.Message {
 
 func (s *mqttSubscriber) Handle(m mediator.Message) bool {
 	if m.Type() == s.topic {
-		s.inbox <- m
+		select {
+		case s.inbox <- m:
+		default:
+			log := logging.GetFromContext(m.Context())
+			log.Warn("dropping mqtt message due to backpressure", "topic", s.topic, "message_type", m.Type())
+		}
 		return true
 	}
 

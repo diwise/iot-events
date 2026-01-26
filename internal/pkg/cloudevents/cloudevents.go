@@ -62,7 +62,7 @@ func (c CloudEvents) Start(ctx context.Context) {
 
 		subscriber := &cloudEventSubscriber{
 			id:          sId,
-			inbox:       make(chan mediator.Message),
+			inbox:       make(chan mediator.Message, subscriberInboxBuffer),
 			tenants:     s.Tenants,
 			endpoint:    s.Endpoint,
 			messageType: s.Type,
@@ -86,6 +86,8 @@ type cloudEventSubscriber struct {
 	eventType   string
 }
 
+const subscriberInboxBuffer = 64
+
 func (s *cloudEventSubscriber) ID() string {
 	return s.id
 }
@@ -100,7 +102,12 @@ func (s *cloudEventSubscriber) Handle(m mediator.Message) bool {
 		return false
 	}
 
-	s.inbox <- m
+	select {
+	case s.inbox <- m:
+	default:
+		log := logging.GetFromContext(m.Context())
+		log.Warn("dropping cloud event due to backpressure", "subscriber_id", s.id, "message_type", s.messageType)
+	}
 
 	return true
 }
