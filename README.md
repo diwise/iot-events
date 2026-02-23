@@ -13,7 +13,7 @@ launch.json
             "type": "go",
             "request": "launch",
             "mode": "auto",
-            "program": "${workspaceFolder}/cmd/iot-events/main.go",
+            "program": "${workspaceFolder}/cmd/iot-events",
             "env": {
                 "RABBITMQ_DISABLED": "true"
             },
