@@ -48,7 +48,7 @@ func testSetup(t *testing.T) (*is.I, context.Context, Mediator) {
 	is := is.New(t)
 
 	ctx := logging.NewContextWithLogger(t.Context(), slog.New(slog.NewTextHandler(io.Discard, nil)))
-	
+
 	m := New(ctx)
 	m.Start(ctx)
 
