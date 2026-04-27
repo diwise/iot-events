@@ -74,7 +74,7 @@ func main() {
 	ctx, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion, "json")
 	defer cleanup()
 
-	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
+	ctx, flags := parseExternalConfig(ctx, defaultFlags())
 	ctx, cancel := context.WithCancel(ctx)
 
 	logging.SetLogLevel(parseLogLevel(flags[logLevel]))
