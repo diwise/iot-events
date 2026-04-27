@@ -25,6 +25,7 @@ import (
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	k8shandlers "github.com/diwise/service-chassis/pkg/infrastructure/net/http/handlers"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
+	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
 )
 
@@ -61,19 +62,22 @@ func defaultFlags() flagMap {
 		oauth2ClientId:     "",
 		oauth2ClientSecret: "",
 		oauth2InsecureUrl:  "false",
+
+		logLevel: "debug",
 	}
 }
 
 const serviceName string = "iot-events"
 
 func main() {
-	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
-
 	serviceVersion := buildinfo.SourceVersion()
-	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
+	ctx, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion, "json")
 	defer cleanup()
 
+	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
 	ctx, cancel := context.WithCancel(ctx)
+
+	logging.SetLogLevel(parseLogLevel(flags[logLevel]))
 
 	cf, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
@@ -237,6 +241,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flags[oauth2ClientSecret] = envOrDef(ctx, "OAUTH2_CLIENT_SECRET", flags[oauth2ClientSecret])
 	flags[oauth2InsecureUrl] = envOrDef(ctx, "OAUTH2_REALM_INSECURE", flags[oauth2InsecureUrl])
 
+	flags[logLevel] = envOrDef(ctx, "LOG_LEVEL", flags[logLevel])
+
 	apply := func(f flagType) func(string) error {
 		return func(value string) error {
 			flags[f] = value
@@ -252,6 +258,21 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flag.Parse()
 
 	return ctx, flags
+}
+
+func parseLogLevel(level string) slog.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return slog.LevelDebug
+	case "info":
+		return slog.LevelInfo
+	case "warn", "warning":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelDebug
+	}
 }
 
 func exitIf(err error, logger *slog.Logger, msg string, args ...any) {
