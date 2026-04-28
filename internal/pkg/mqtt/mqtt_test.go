@@ -200,11 +200,11 @@ func TestStatus(t *testing.T) {
 		Timestamp       time.Time `json:"timestamp"`
 	}{
 		DeviceID:        "744691f2-3ad9-40b1-8879-58935bd2dadb",
-		RSSI:            floatPtr(-70.5),
-		LoRaSNR:         floatPtr(7.5),
+		RSSI:            new(-70.5),
+		LoRaSNR:         new(7.5),
 		Frequency:       int64Ptr(868100000),
 		SpreadingFactor: floatPtr(7),
-		DR:              intPtr(5),
+		DR:              new(5),
 		Timestamp:       timestamp,
 	}
 
@@ -218,22 +218,25 @@ func TestStatus(t *testing.T) {
 	err := json.Unmarshal(topicMessage.Body(), &sm)
 	is.NoErr(err)
 	is.Equal(sm.Device.DeviceID, "744691f2-3ad9-40b1-8879-58935bd2dadb")
-	is.Equal(sm.RSSI, floatPtr(-70.5))
-	is.Equal(sm.LoRaSNR, floatPtr(7.5))
+	is.Equal(sm.RSSI, new(-70.5))
+	is.Equal(sm.LoRaSNR, new(7.5))
 	is.Equal(sm.Frequency, int64Ptr(868100000))
 	is.Equal(sm.SpreadingFactor, floatPtr(7))
-	is.Equal(sm.DR, intPtr(5))
+	is.Equal(sm.DR, new(5))
 	is.True(sm.Timestamp.Equal(timestamp))
 }
 
+//go:fix inline
 func floatPtr(f float64) *float64 {
-	return &f
+	return new(f)
 }
 
+//go:fix inline
 func int64Ptr(i int64) *int64 {
-	return &i
+	return new(i)
 }
 
+//go:fix inline
 func intPtr(i int) *int {
-	return &i
+	return new(i)
 }

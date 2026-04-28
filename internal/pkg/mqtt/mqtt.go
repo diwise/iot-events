@@ -346,30 +346,41 @@ func Start(ctx context.Context, m mediator.Mediator, mqttClient Client, prefix, 
 }
 
 var mapper = map[string]string{
-	"/3/9":       "soc",          // device (SOC = State of Charge = battery level %)
-	"/3/7":       "vbat",         //
-	"/3301/5700": "illuminance",  // illuminance
-	"/3303/5700": "temperature",  // temperature
-	"/3304/5700": "humidity",     // humidity
-	"/3435/3":    "fillinglevel", // filling level
-	"/3428/1":    "pm10",         // air quality
-	"/3428/3":    "pm25",         //
-	"/3428/15":   "no2",          //
-	"/3428/17":   "co2",          //
-	"/3424/1":    "volume",       // water meter
-	"/3411/1":    "level",        // battery
-	"/3411/2":    "capacity",     //
-	"/3411/3":    "voltage",      //
-	"/3200/5500": "state",        // digital input
-	"/3200/5501": "count",        //
-	"/3434/1":    "count",        // people counter
-	"/3302/5500": "presence",     // presence
-	"/3302/5501": "count",        //
-	"/3330/5700": "distance",     // distance
-	"/3323/5700": "pressure",     // pressure
-	"/3327/5700": "conductivity", // conductivity
-	"/3328/5700": "power",        // power
-	"/3331/5700": "energy",       // energy
+	"/3/9":        "soc",                 // device (SOC = State of Charge = battery level %)
+	"/3/7":        "vbat",                //
+	"/3301/5700":  "illuminance",         // illuminance
+	"/3303/5700":  "temperature",         // temperature
+	"/3304/5700":  "humidity",            // humidity
+	"/3435/3":     "fillinglevel",        // filling level
+	"/3428/1":     "pm10",                // air quality
+	"/3428/3":     "pm25",                //
+	"/3428/15":    "no2",                 //
+	"/3428/17":    "co2",                 //
+	"/3424/1":     "volume",              // water meter
+	"/3424/9":     "leaksuspected",       //
+	"/3424/10":    "leak",                //
+	"/3424/11":    "backflow",            //
+	"/3424/12":    "blockedmeter",        //
+	"/3424/13":    "fraud",               //
+	"/3424/64001": "powerlow",            //
+	"/3424/64002": "permanenterror",      //
+	"/3424/64004": "emptyspool",          //
+	"/3424/64005": "freeze",              //
+	"/3424/64006": "lowtemperaturealarm", //
+	"/3424/64007": "tamperdetected",      //
+	"/3411/1":     "level",               // battery
+	"/3411/2":     "capacity",            //
+	"/3411/3":     "voltage",             //
+	"/3200/5500":  "state",               // digital input
+	"/3200/5501":  "count",               //
+	"/3434/1":     "count",               // people counter
+	"/3302/5500":  "presence",            // presence
+	"/3302/5501":  "count",               //
+	"/3330/5700":  "distance",            // distance
+	"/3323/5700":  "pressure",            // pressure
+	"/3327/5700":  "conductivity",        // conductivity
+	"/3328/5700":  "power",               // power
+	"/3331/5700":  "energy",              // energy
 }
 
 func (p *mqttPublisher) publish(ctx context.Context, topic string, v any) error {
@@ -516,6 +527,9 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 				v.Value = *rec.BoolValue
 			} else if rec.StringValue != "" {
 				v.Value = rec.StringValue
+			} else {
+				log.Debug("record contains no value", "record_name", rec.Name)
+				continue
 			}
 
 			err = p.publish(ctx, topic, v)
@@ -609,6 +623,7 @@ type mqttSubscriber struct {
 func newSubscriber(topic string, handlerFunc func(mediator.Message)) *mqttSubscriber {
 	return &mqttSubscriber{
 		inbox:   make(chan mediator.Message),
+		
 		topic:   topic,
 		handler: handlerFunc,
 	}
