@@ -63,6 +63,7 @@ type Client interface {
 	Start(ctx context.Context)
 	Publish(ctx context.Context, msg TopicMessage) error
 	Enabled() bool
+	IsConnected() bool
 }
 
 func NewClient(ctx context.Context, cfg Config) (Client, error) {
@@ -75,7 +76,8 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 			PublishFunc: func(ctx context.Context, msg TopicMessage) error {
 				return nil
 			},
-			EnabledFunc: func() bool { return false },
+			EnabledFunc:     func() bool { return false },
+			IsConnectedFunc: func() bool { return false },
 		}, nil
 	}
 
@@ -128,6 +130,10 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 	c.enabled.Store(true)
 
 	return c, nil
+}
+
+func (c *mqttClient) IsConnected() bool {
+	return c.pc.IsConnectionOpen()
 }
 
 func (c *mqttClient) Enabled() bool {
@@ -622,8 +628,8 @@ type mqttSubscriber struct {
 
 func newSubscriber(topic string, handlerFunc func(mediator.Message)) *mqttSubscriber {
 	return &mqttSubscriber{
-		inbox:   make(chan mediator.Message),
-		
+		inbox: make(chan mediator.Message),
+
 		topic:   topic,
 		handler: handlerFunc,
 	}

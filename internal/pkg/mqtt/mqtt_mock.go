@@ -21,6 +21,9 @@ var _ Client = &ClientMock{}
 //			EnabledFunc: func() bool {
 //				panic("mock out the Enabled method")
 //			},
+//			IsConnectedFunc: func() bool {
+//				panic("mock out the IsConnected method")
+//			},
 //			PublishFunc: func(ctx context.Context, msg TopicMessage) error {
 //				panic("mock out the Publish method")
 //			},
@@ -37,6 +40,9 @@ type ClientMock struct {
 	// EnabledFunc mocks the Enabled method.
 	EnabledFunc func() bool
 
+	// IsConnectedFunc mocks the IsConnected method.
+	IsConnectedFunc func() bool
+
 	// PublishFunc mocks the Publish method.
 	PublishFunc func(ctx context.Context, msg TopicMessage) error
 
@@ -47,6 +53,9 @@ type ClientMock struct {
 	calls struct {
 		// Enabled holds details about calls to the Enabled method.
 		Enabled []struct {
+		}
+		// IsConnected holds details about calls to the IsConnected method.
+		IsConnected []struct {
 		}
 		// Publish holds details about calls to the Publish method.
 		Publish []struct {
@@ -61,9 +70,10 @@ type ClientMock struct {
 			Ctx context.Context
 		}
 	}
-	lockEnabled sync.RWMutex
-	lockPublish sync.RWMutex
-	lockStart   sync.RWMutex
+	lockEnabled     sync.RWMutex
+	lockIsConnected sync.RWMutex
+	lockPublish     sync.RWMutex
+	lockStart       sync.RWMutex
 }
 
 // Enabled calls EnabledFunc.
@@ -90,6 +100,33 @@ func (mock *ClientMock) EnabledCalls() []struct {
 	mock.lockEnabled.RLock()
 	calls = mock.calls.Enabled
 	mock.lockEnabled.RUnlock()
+	return calls
+}
+
+// IsConnected calls IsConnectedFunc.
+func (mock *ClientMock) IsConnected() bool {
+	if mock.IsConnectedFunc == nil {
+		panic("ClientMock.IsConnectedFunc: method is nil but Client.IsConnected was just called")
+	}
+	callInfo := struct {
+	}{}
+	mock.lockIsConnected.Lock()
+	mock.calls.IsConnected = append(mock.calls.IsConnected, callInfo)
+	mock.lockIsConnected.Unlock()
+	return mock.IsConnectedFunc()
+}
+
+// IsConnectedCalls gets all the calls that were made to IsConnected.
+// Check the length with:
+//
+//	len(mockedClient.IsConnectedCalls())
+func (mock *ClientMock) IsConnectedCalls() []struct {
+} {
+	var calls []struct {
+	}
+	mock.lockIsConnected.RLock()
+	calls = mock.calls.IsConnected
+	mock.lockIsConnected.RUnlock()
 	return calls
 }
 
