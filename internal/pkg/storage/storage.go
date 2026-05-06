@@ -19,6 +19,7 @@ type Storage interface {
 	collector.MeasurementRetriever
 	collector.MeasurementStorer
 	Close()
+	Ping(ctx context.Context) error
 }
 
 type storageImpl struct {
@@ -71,6 +72,21 @@ func (s storageImpl) SeedMetadata(ctx context.Context, metadata []collector.Meta
 	err = tx.Commit(ctx)
 	if err != nil {
 		log.Error("could not commit metadata seeding transaction", slog.String("error", err.Error()))
+		return err
+	}
+
+	return nil
+}
+
+func (s storageImpl) Ping(ctx context.Context) error {
+	c, err := s.conn.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer c.Release()
+	
+	err = c.Ping(ctx)
+	if err != nil {
 		return err
 	}
 

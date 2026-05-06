@@ -32,6 +32,7 @@ type Config struct {
 	OAuthInsecureUrl   bool
 	OAuth2ClientID     string
 	OAuth2ClientSecret string
+	Enabled            bool
 }
 
 func NewConfig(devMgmtUrl, oauth2TokenURL string, oauthInsecureUrl bool, oauth2ClientID, oauth2ClientSecret string) Config {
@@ -42,6 +43,7 @@ func NewConfig(devMgmtUrl, oauth2TokenURL string, oauthInsecureUrl bool, oauth2C
 		OAuthInsecureUrl:   oauthInsecureUrl,
 		OAuth2ClientID:     oauth2ClientID,
 		OAuth2ClientSecret: oauth2ClientSecret,
+		Enabled:            true,
 	}
 }
 
@@ -63,6 +65,10 @@ type Client interface {
 }
 
 func New(ctx context.Context, cfg *Config) (Client, error) {
+	if !cfg.Enabled {
+		return &ClientMock{}, nil
+	}
+
 	oauthConfig := &clientcredentials.Config{
 		ClientID:     cfg.OAuth2ClientID,
 		ClientSecret: cfg.OAuth2ClientSecret,

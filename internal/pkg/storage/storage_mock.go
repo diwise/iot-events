@@ -28,6 +28,9 @@ var _ Storage = &StorageMock{}
 //			FetchLatestFunc: func(ctx context.Context, deviceID string, tenants []string) ([]collector.Value, error) {
 //				panic("mock out the FetchLatest method")
 //			},
+//			PingFunc: func(ctx context.Context) error {
+//				panic("mock out the Ping method")
+//			},
 //			QueryFunc: func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult {
 //				panic("mock out the Query method")
 //			},
@@ -64,6 +67,9 @@ type StorageMock struct {
 
 	// FetchLatestFunc mocks the FetchLatest method.
 	FetchLatestFunc func(ctx context.Context, deviceID string, tenants []string) ([]collector.Value, error)
+
+	// PingFunc mocks the Ping method.
+	PingFunc func(ctx context.Context) error
 
 	// QueryFunc mocks the Query method.
 	QueryFunc func(ctx context.Context, q collector.QueryParams, tenants []string) collector.QueryResult
@@ -110,6 +116,11 @@ type StorageMock struct {
 			DeviceID string
 			// Tenants is the tenants argument value.
 			Tenants []string
+		}
+		// Ping holds details about calls to the Ping method.
+		Ping []struct {
+			// Ctx is the ctx argument value.
+			Ctx context.Context
 		}
 		// Query holds details about calls to the Query method.
 		Query []struct {
@@ -174,6 +185,7 @@ type StorageMock struct {
 	lockClose             sync.RWMutex
 	lockFetch             sync.RWMutex
 	lockFetchLatest       sync.RWMutex
+	lockPing              sync.RWMutex
 	lockQuery             sync.RWMutex
 	lockQueryDevice       sync.RWMutex
 	lockQueryObject       sync.RWMutex
@@ -291,6 +303,38 @@ func (mock *StorageMock) FetchLatestCalls() []struct {
 	mock.lockFetchLatest.RLock()
 	calls = mock.calls.FetchLatest
 	mock.lockFetchLatest.RUnlock()
+	return calls
+}
+
+// Ping calls PingFunc.
+func (mock *StorageMock) Ping(ctx context.Context) error {
+	if mock.PingFunc == nil {
+		panic("StorageMock.PingFunc: method is nil but Storage.Ping was just called")
+	}
+	callInfo := struct {
+		Ctx context.Context
+	}{
+		Ctx: ctx,
+	}
+	mock.lockPing.Lock()
+	mock.calls.Ping = append(mock.calls.Ping, callInfo)
+	mock.lockPing.Unlock()
+	return mock.PingFunc(ctx)
+}
+
+// PingCalls gets all the calls that were made to Ping.
+// Check the length with:
+//
+//	len(mockedStorage.PingCalls())
+func (mock *StorageMock) PingCalls() []struct {
+	Ctx context.Context
+} {
+	var calls []struct {
+		Ctx context.Context
+	}
+	mock.lockPing.RLock()
+	calls = mock.calls.Ping
+	mock.lockPing.RUnlock()
 	return calls
 }
 

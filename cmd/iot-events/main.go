@@ -70,14 +70,15 @@ func defaultFlags() flagMap {
 const serviceName string = "iot-events"
 
 func main() {
+	ctx, flags := parseExternalConfig(context.Background(), defaultFlags())
+
 	serviceVersion := buildinfo.SourceVersion()
-	ctx, logger, cleanup := o11y.Init(context.Background(), serviceName, serviceVersion, "json")
+	ctx, logger, cleanup := o11y.Init(ctx, serviceName, serviceVersion, "json")
 	defer cleanup()
 
-	ctx, flags := parseExternalConfig(ctx, defaultFlags())
-	ctx, cancel := context.WithCancel(ctx)
-
 	logging.SetLogLevel(parseLogLevel(flags[logLevel]))
+
+	ctx, cancel := context.WithCancel(ctx)
 
 	cf, err := os.Open(flags[cloudeventsFile])
 	exitIf(err, logger, "unable to open cloudevents config file")
@@ -104,6 +105,8 @@ func main() {
 	mqttConfig := mqtt.NewConfig(flags[mqttEnabled] == "true", flags[mqttBrokerUrl], flags[mqttUser], flags[mqttPassword], []string{}, flags[mqttClientId], flags[mqttInsecure] == "true", flags[mqttPrefix], flags[mqttIdentifier])
 	dmcConfig := devicemanagement.NewConfig(flags[devMgmtUrl], flags[oauth2TokenUrl], flags[oauth2InsecureUrl] == "true", flags[oauth2ClientId], flags[oauth2ClientSecret])
 
+	dmcConfig.Enabled = mqttConfig.Enabled
+
 	cfg := &appConfig{
 		storageConfig:     &storageConfig,
 		messengerConfig:   &messengerConfig,
@@ -120,9 +123,6 @@ func main() {
 }
 
 func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile io.ReadCloser, metadataFile io.ReadCloser) (servicerunner.Runner[appConfig], error) {
-	defer policiesFile.Close()
-	defer metadataFile.Close()
-
 	var err error
 
 	var messenger messaging.MsgContext
@@ -133,8 +133,32 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	var dmc devicemanagement.Client
 
 	probes := map[string]k8shandlers.ServiceProber{
-		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
-		"timescale": func(context.Context) (string, error) { return "ok", nil },
+		"rabbitmq": func(context.Context) (string, error) { return "ok", nil },
+		"mqtt": func(context.Context) (string, error) {
+			if !cfg.mqttConfig.Enabled {
+				return "mqtt disabled", nil
+			}
+
+			if mc == nil {
+				return "mqtt client not initialized", errors.New("mqtt client not initialized")
+			}
+
+			if !mc.IsConnected() {
+				return "mqtt not connected", errors.New("mqtt not connected")
+			}
+			
+			return "ok", nil
+		},
+		"timescale": func(context.Context) (string, error) {
+			if s == nil {
+				return "storage not initialized", errors.New("storage not initialized")
+			}
+			err := s.Ping(ctx)
+			if err != nil {
+				return "error pinging storage", fmt.Errorf("error pinging storage: %w", err)
+			}
+			return "ok", nil
+		},
 	}
 
 	_, runner := servicerunner.New(ctx, *cfg,
@@ -143,11 +167,13 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
-				api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
-				return nil
+				defer policiesFile.Close()
+				return api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
 			}),
 		),
 		oninit(func(ctx context.Context, cfg *appConfig) error {
+			defer metadataFile.Close()
+
 			m = mediator.New(ctx)
 
 			s, err = storage.New(ctx, *cfg.storageConfig)
@@ -254,6 +280,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flag.Func("cloudevents", "configuration file for cloud events", apply(cloudeventsFile))
 	flag.Func("policies", "an authorization policy file", apply(policiesFile))
 	flag.Func("metadata", "a CSV file with initial metadata", apply(metadataFile))
+	flag.Func("loglevel", "set log level (debug, info, warn, error)", apply(logLevel))
 
 	flag.Parse()
 
