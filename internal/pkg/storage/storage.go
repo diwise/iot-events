@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"time"
 
 	collector "github.com/diwise/iot-events/internal/pkg/measurements"
+	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -84,7 +86,7 @@ func (s storageImpl) Ping(ctx context.Context) error {
 		return err
 	}
 	defer c.Release()
-	
+
 	err = c.Ping(ctx)
 	if err != nil {
 		return err
@@ -190,11 +192,12 @@ func connect(ctx context.Context, config Config) (*pgxpool.Pool, error) {
 	}
 
 	// Configure connection pool to prevent "too many clients" issues
-	poolConfig.MaxConns = int32(config.MaxConns())
-	poolConfig.MinConns = int32(config.MinConns())
-	poolConfig.MaxConnIdleTime = config.MaxConnIdleTime()
-	poolConfig.MaxConnLifetime = config.MaxConnLifetime()
-	poolConfig.HealthCheckPeriod = config.HealthCheckPeriod()
+	poolConfig.MaxConns = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MAX_CONNS", int32(10))
+	poolConfig.MinConns = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MIN_CONNS", int32(2))
+	poolConfig.MaxConnLifetime = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MAX_CONN_LIFETIME", 30*time.Minute)
+	poolConfig.MaxConnIdleTime = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MAX_CONN_IDLE_TIME", 5*time.Minute)
+	poolConfig.HealthCheckPeriod = env.GetVariableOrDefaultAs(ctx, "POSTGRES_HEALTH_CHECK_PERIOD", 30*time.Second)
+	
 	poolConfig.ConnConfig.RuntimeParams["application_name"] = "iot-events"
 
 	log := logging.GetFromContext(ctx)

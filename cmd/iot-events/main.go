@@ -146,7 +146,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			if !mc.IsConnected() {
 				return "mqtt not connected", errors.New("mqtt not connected")
 			}
-			
+
 			return "ok", nil
 		},
 		"timescale": func(context.Context) (string, error) {
