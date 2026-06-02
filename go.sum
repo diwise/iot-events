@@ -34,6 +34,8 @@ github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610 h1:r4vY4YdZh2reo6Wfsl
 github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610/go.mod h1:ufA3dosHOpdrV7y/Cx5hOPNiWM4hD82YHNlsN3T4dLQ=
 github.com/diwise/service-chassis v0.0.0-20260601131324-5a8797d98a03 h1:BvjV071Q0sdWiS9edepbIdqlxq0tPbRLqBIir03/Xuw=
 github.com/diwise/service-chassis v0.0.0-20260601131324-5a8797d98a03/go.mod h1:dyk0wPZG/iOEnEDE/bi6Uggj3zDmVaplOLkhUCr1V4o=
+github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775 h1:PXqidIv0Jpt0gnOJ3KlRDfYgeuRlsoWioeWiG9P06sk=
+github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775/go.mod h1:dyk0wPZG/iOEnEDE/bi6Uggj3zDmVaplOLkhUCr1V4o=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=
 github.com/dustin/go-humanize v1.0.1/go.mod h1:Mu1zIs6XwVuF/gI1OepvI0qD18qycQx+mFykh5fBlto=
 github.com/eclipse/paho.mqtt.golang v1.5.1 h1:/VSOv3oDLlpqR2Epjn1Q7b2bSTplJIeV2ISgCl2W7nE=
