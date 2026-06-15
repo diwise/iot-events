@@ -28,7 +28,32 @@ func TestAPI(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 
-	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(policy)))
+	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(legacyPolicy)))
+	is.NoErr(err)
+
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	resp, _ := testRequest(ts, http.MethodGet, "/api/v0/measurements", createJWTWithTenants([]string{"ignored"}), nil)
+
+	is.Equal(resp.StatusCode, http.StatusOK)
+	is.Equal(len(sm.QueryCalls()), 1)
+	is.Equal(sm.QueryCalls()[0].Tenants, []string{"unittest"})
+}
+
+func TestAPIAccessObjectAuthorization(t *testing.T) {
+	is := is.New(t)
+	mm := &mediator.MediatorMock{
+		PublishFunc: func(message mediator.Message) {},
+	}
+	sm := &storage.StorageMock{
+		QueryFunc: func(ctx context.Context, q measurements.QueryParams, tenants []string) measurements.QueryResult {
+			return measurements.QueryResult{}
+		},
+	}
+	mux := http.NewServeMux()
+
+	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(accessObjectPolicy)), api.WithAccessObjectAuthorization(true))
 	is.NoErr(err)
 
 	ts := httptest.NewServer(mux)
@@ -61,11 +86,24 @@ func createJWTWithTenants(tenants []string) string {
 	return tokenString
 }
 
-const policy string = `package example.authz
+const legacyPolicy string = `package example.authz
 default allow := false
-allow = response {
+allow = response if {
 	response := {
 		"tenants": ["unittest"]
+	}
+}
+`
+
+const accessObjectPolicy string = `package example.authz
+
+default allow := false
+
+allow = response if {
+	response := {
+		"access": {
+			"unittest": ["measurements.read"]
+		}
 	}
 }
 `
