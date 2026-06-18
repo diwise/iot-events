@@ -1,0 +1,339 @@
+openapi: 3.0.3
+info:
+  title: IoT Events API
+  version: 0.1.0
+  description: API for querying IoT measurement events.
+security:
+  - bearerAuth: []
+tags:
+  - name: Measurements v0
+  - name: Measurements v1
+servers:
+  - url: /
+paths:
+  /api/v0/measurements:
+    get:
+      tags: [Measurements v0]
+      summary: Query measurements
+      description: |
+        Version 0 query endpoint. The standard query requires an `id` parameter unless aggregate methods are used.
+        Aggregate queries are selected with `aggrMethods`.
+      parameters:
+        - $ref: '#/components/parameters/MeasurementId'
+        - $ref: '#/components/parameters/DeviceIdQuery'
+        - $ref: '#/components/parameters/Urn'
+        - $ref: '#/components/parameters/Timerel'
+        - $ref: '#/components/parameters/TimeAt'
+        - $ref: '#/components/parameters/EndTimeAt'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: latest
+          in: query
+          schema: { type: boolean }
+        - name: lastN
+          in: query
+          schema: { type: boolean }
+        - name: reverse
+          in: query
+          schema: { type: boolean }
+        - name: vb
+          in: query
+          description: Filter boolean value measurements.
+          schema: { type: boolean }
+        - name: v
+          in: query
+          description: Numeric value filter. Supports raw comparisons accepted by the backend, for example `>10`.
+          schema: { type: string }
+        - name: aggrMethods
+          in: query
+          description: Comma-separated aggregate methods.
+          schema:
+            type: string
+            example: avg,min,max,sum
+        - name: timeUnit
+          in: query
+          description: Required for `aggrMethods=rate`.
+          schema:
+            type: string
+            enum: [hour, day]
+      responses:
+        '200':
+          description: Measurements returned
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/MeasurementResultResponse'
+                  - $ref: '#/components/schemas/AggregateResultResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v0/measurements/{deviceID}:
+    get:
+      tags: [Measurements v0]
+      summary: Fetch measurements for a device
+      parameters:
+        - name: deviceID
+          in: path
+          required: true
+          schema: { type: string }
+        - $ref: '#/components/parameters/Urn'
+        - $ref: '#/components/parameters/Timerel'
+        - $ref: '#/components/parameters/TimeAt'
+        - $ref: '#/components/parameters/EndTimeAt'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: latest
+          in: query
+          description: If true, returns latest measurements for the device.
+          schema: { type: boolean }
+      responses:
+        '200':
+          description: Measurements returned
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/DeviceMeasurementsResponse'
+                  - $ref: '#/components/schemas/ValuesResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+  /api/v1/measurements:
+    get:
+      tags: [Measurements v1]
+      summary: Query measurements with metadata
+      description: |
+        Version 1 query endpoint. Supports metadata filters using query parameters named `metadata[key]`.
+      parameters:
+        - $ref: '#/components/parameters/MeasurementId'
+        - $ref: '#/components/parameters/DeviceIdQuery'
+        - $ref: '#/components/parameters/Urn'
+        - $ref: '#/components/parameters/Timerel'
+        - $ref: '#/components/parameters/TimeAt'
+        - $ref: '#/components/parameters/EndTimeAt'
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - name: name
+          in: query
+          schema: { type: string }
+        - name: latest
+          in: query
+          schema: { type: boolean }
+        - name: metadata[key]
+          in: query
+          description: Metadata filter. Replace key with the metadata key to filter on.
+          schema: { type: string }
+      responses:
+        '200':
+          description: Measurements returned
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MeasurementCollectionResponse'
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '500': { $ref: '#/components/responses/InternalServerError' }
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    MeasurementId:
+      name: id
+      in: query
+      description: Measurement id.
+      schema: { type: string }
+    DeviceIdQuery:
+      name: device_id
+      in: query
+      schema: { type: string }
+    Urn:
+      name: urn
+      in: query
+      schema: { type: string }
+      example: urn:oma:lwm2m:ext:3303
+    Timerel:
+      name: timerel
+      in: query
+      schema:
+        type: string
+        enum: [after, before, between]
+    TimeAt:
+      name: timeat
+      in: query
+      schema:
+        type: string
+        format: date-time
+    EndTimeAt:
+      name: endtimeat
+      in: query
+      schema:
+        type: string
+        format: date-time
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        format: uint64
+        minimum: 0
+    Offset:
+      name: offset
+      in: query
+      schema:
+        type: integer
+        format: uint64
+        minimum: 0
+  responses:
+    BadRequest:
+      description: Bad request
+    Forbidden:
+      description: Forbidden
+    InternalServerError:
+      description: Internal server error
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        meta:
+          $ref: '#/components/schemas/Meta'
+        data: {}
+        links:
+          $ref: '#/components/schemas/Links'
+      required: [data]
+    Meta:
+      type: object
+      properties:
+        totalRecords:
+          type: integer
+          format: uint64
+        offset:
+          type: integer
+          format: uint64
+        limit:
+          type: integer
+          format: uint64
+        count:
+          type: integer
+          format: uint64
+      required: [totalRecords]
+    Links:
+      type: object
+      properties:
+        self: { type: string, format: uri-reference }
+        first: { type: string, format: uri-reference }
+        prev: { type: string, format: uri-reference }
+        next: { type: string, format: uri-reference }
+        last: { type: string, format: uri-reference }
+    Metadata:
+      type: object
+      properties:
+        id: { type: string }
+        deviceID: { type: string }
+        key: { type: string }
+        value: { type: string }
+    Measurement:
+      type: object
+      properties:
+        deviceID: { type: string }
+        id: { type: string }
+        name: { type: string }
+        tenant: { type: string }
+        timestamp: { type: string, format: date-time }
+        urn: { type: string }
+        vb: { type: boolean, nullable: true }
+        lat: { type: number, format: double }
+        lon: { type: number, format: double }
+        vs: { type: string }
+        unit: { type: string }
+        v: { type: number, format: double, nullable: true }
+        metadata:
+          type: array
+          items:
+            $ref: '#/components/schemas/Metadata'
+      required: [deviceID, id, name, tenant, timestamp, urn, lat, lon]
+    Value:
+      type: object
+      properties:
+        id: { type: string, nullable: true }
+        n: { type: string, nullable: true }
+        vb: { type: boolean, nullable: true }
+        vs: { type: string }
+        v: { type: number, format: double, nullable: true }
+        unit: { type: string }
+        timestamp: { type: string, format: date-time }
+        link: { type: string, nullable: true }
+        sum: { type: number, format: double, nullable: true }
+        urn: { type: string, nullable: true }
+      required: [timestamp]
+    MeasurementResult:
+      type: object
+      properties:
+        id: { type: string }
+        deviceID: { type: string }
+        name: { type: string }
+        urn: { type: string }
+        lat: { type: number, format: double, nullable: true }
+        lon: { type: number, format: double, nullable: true }
+        lastObserved: { type: string, format: date-time, nullable: true }
+        values:
+          type: array
+          items:
+            $ref: '#/components/schemas/Value'
+        tenant: { type: string }
+      required: [values]
+    AggregateResult:
+      type: object
+      properties:
+        avg: { type: number, format: double, nullable: true }
+        sum: { type: number, format: double, nullable: true }
+        min: { type: number, format: double, nullable: true }
+        max: { type: number, format: double, nullable: true }
+        count:
+          type: integer
+          format: uint64
+          nullable: true
+    MeasurementCollectionResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Measurement'
+    MeasurementResultResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/MeasurementResult'
+    AggregateResultResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              $ref: '#/components/schemas/AggregateResult'
+    DeviceMeasurementsResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: object
+              additionalProperties:
+                type: array
+                items:
+                  $ref: '#/components/schemas/Value'
+    ValuesResponse:
+      allOf:
+        - $ref: '#/components/schemas/ApiResponse'
+        - type: object
+          properties:
+            data:
+              type: array
+              items:
+                $ref: '#/components/schemas/Value'

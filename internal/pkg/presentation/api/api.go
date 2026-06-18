@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/diwise/iot-events/assets/docs"
 	messagecollector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
@@ -30,6 +31,8 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 	if err != nil {
 		return fmt.Errorf("failed to create api authenticator: %w", err)
 	}
+
+	docs.RegisterHandlers(ctx, rootMux)
 
 	const apiPrefix0 string = "/api/v0"
 	const apiPrefix1 string = "/api/v1"
