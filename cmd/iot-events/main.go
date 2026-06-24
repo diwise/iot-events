@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,9 +36,10 @@ func defaultFlags() flagMap {
 		servicePort:   "8080",
 		controlPort:   "8000",
 
-		cloudeventsFile: "/opt/diwise/config/cloudevents.yaml",
-		policiesFile:    "/opt/diwise/config/authz.rego",
-		metadataFile:    "/opt/diwise/config/metadata.csv",
+		cloudeventsFile:   "/opt/diwise/config/cloudevents.yaml",
+		policiesFile:      "/opt/diwise/config/authz.rego",
+		authzAccessObject: "false",
+		metadataFile:      "/opt/diwise/config/metadata.csv",
 
 		messengerTopic: "#",
 
@@ -146,7 +148,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			if !mc.IsConnected() {
 				return "mqtt not connected", errors.New("mqtt not connected")
 			}
-			
+
 			return "ok", nil
 		},
 		"timescale": func(context.Context) (string, error) {
@@ -167,8 +169,9 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
+				accessObjectAuthz, _ := strconv.ParseBool(flags[authzAccessObject])
 				defer policiesFile.Close()
-				return api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile)
+				return api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile, api.WithAccessObjectAuthorization(accessObjectAuthz))
 			}),
 		),
 		oninit(func(ctx context.Context, cfg *appConfig) error {
@@ -267,6 +270,8 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	flags[oauth2ClientSecret] = envOrDef(ctx, "OAUTH2_CLIENT_SECRET", flags[oauth2ClientSecret])
 	flags[oauth2InsecureUrl] = envOrDef(ctx, "OAUTH2_REALM_INSECURE", flags[oauth2InsecureUrl])
 
+	flags[authzAccessObject] = envOrDef(ctx, "AUTHZ_ACCESS_OBJECT_ENABLED", flags[authzAccessObject])
+
 	flags[logLevel] = envOrDef(ctx, "LOG_LEVEL", flags[logLevel])
 
 	apply := func(f flagType) func(string) error {
@@ -279,6 +284,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 	// Allow command line arguments to override defaults and environment variables
 	flag.Func("cloudevents", "configuration file for cloud events", apply(cloudeventsFile))
 	flag.Func("policies", "an authorization policy file", apply(policiesFile))
+	flag.Func("authz-access-object", "enable access-object authorization policy result model", apply(authzAccessObject))
 	flag.Func("metadata", "a CSV file with initial metadata", apply(metadataFile))
 	flag.Func("loglevel", "set log level (debug, info, warn, error)", apply(logLevel))
 

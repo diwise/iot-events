@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/diwise/iot-events/assets/docs"
 	messagecollector "github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
@@ -23,13 +24,34 @@ import (
 
 var tracer = otel.Tracer("iot-events/api")
 
-func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.ServeMux, mediator mediator.Mediator, storage storage.Storage, policies io.Reader) error {
+type registerOptions struct {
+	authOptions []auth.Option
+}
+
+type RegisterOption func(*registerOptions)
+
+func WithAccessObjectAuthorization(enabled bool) RegisterOption {
+	return func(o *registerOptions) {
+		o.authOptions = append(o.authOptions, auth.WithAccessObjectAuthorization(enabled))
+	}
+}
+
+const ReadMeasurements auth.Scope = auth.Scope("measurements.read")
+
+func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.ServeMux, mediator mediator.Mediator, storage storage.Storage, policies io.Reader, opts ...RegisterOption) error {
 	log := logging.GetFromContext(ctx)
 
-	authenticator, err := auth.NewAuthenticator(ctx, policies)
+	registerOpts := registerOptions{}
+	for _, apply := range opts {
+		apply(&registerOpts)
+	}
+
+	authz, err := auth.NewAuthenticator(ctx, policies, registerOpts.authOptions...)
 	if err != nil {
 		return fmt.Errorf("failed to create api authenticator: %w", err)
 	}
+
+	docs.RegisterHandlers(ctx, rootMux)
 
 	const apiPrefix0 string = "/api/v0"
 	const apiPrefix1 string = "/api/v1"
@@ -39,13 +61,13 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 	mux0.HandleFunc("GET /measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
 
 	v0 := http.StripPrefix(apiPrefix0, mux0)
-	rootMux.Handle("GET "+apiPrefix0+"/", authenticator(v0))
+	rootMux.Handle("GET "+apiPrefix0+"/", authz.RequireAccess(ReadMeasurements)(v0))
 
 	mux1 := http.NewServeMux()
 	mux1.HandleFunc("GET /measurements", NewQueryMeasurementsHandler1(storage, log))
 
 	v1 := http.StripPrefix(apiPrefix1, mux1)
-	rootMux.Handle("GET "+apiPrefix1+"/", authenticator(v1))
+	rootMux.Handle("GET "+apiPrefix1+"/", authz.RequireAccess(ReadMeasurements)(v1))
 
 	return nil
 }
@@ -59,7 +81,7 @@ func NewQueryMeasurementsHandler1(m messagecollector.MeasurementRetriever, log *
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
+		allowedTenants := auth.GetTenantsWithAllowedScopes(ctx, ReadMeasurements)
 		if len(allowedTenants) == 0 {
 			logger.Error("no allowed tenants in context")
 			w.WriteHeader(http.StatusForbidden)
@@ -136,7 +158,7 @@ func NewFetchMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
+		allowedTenants := auth.GetTenantsWithAllowedScopes(ctx, ReadMeasurements)
 		deviceID := r.PathValue("deviceID")
 
 		if deviceID == "" {
@@ -187,7 +209,7 @@ func NewQueryMeasurementsHandler(m messagecollector.MeasurementRetriever, log *s
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
 		_, ctx, logger := o11y.AddTraceIDToLoggerAndStoreInContext(span, log, ctx)
 
-		allowedTenants := auth.GetAllowedTenantsFromContext(ctx)
+		allowedTenants := auth.GetTenantsWithAllowedScopes(ctx, ReadMeasurements)
 
 		q, err := url.ParseQuery(r.URL.RawQuery)
 		if err != nil {
