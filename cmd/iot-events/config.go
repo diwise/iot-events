@@ -20,6 +20,7 @@ const (
 	controlPort
 	cloudeventsFile
 	policiesFile
+	authzAccessObject
 	messengerTopic
 
 	dbHost
