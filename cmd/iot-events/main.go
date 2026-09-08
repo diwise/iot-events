@@ -105,8 +105,8 @@ func main() {
 
 	messengerConfig := messaging.LoadConfiguration(ctx, serviceName, logger)
 	storageConfig := storage.NewConfig(flags[dbHost], flags[dbPort], flags[dbName], flags[dbUser], flags[dbPassword], flags[dbSSLMode])
-	mqttConfig := mqtt.NewConfig(flags[mqttEnabled] == "true", flags[mqttBrokerUrl], flags[mqttUser], flags[mqttPassword], []string{}, flags[mqttClientId], flags[mqttInsecure] == "true", flags[mqttPrefix], flags[mqttIdentifier])
-	dmcConfig := devicemanagement.NewConfig(flags[devMgmtUrl], flags[oauth2TokenUrl], flags[oauth2InsecureUrl] == "true", flags[oauth2ClientId], flags[oauth2ClientSecret])
+	mqttConfig := mqtt.NewConfig(mqttEnabledFlag(flags), flags[mqttBrokerUrl], flags[mqttUser], flags[mqttPassword], []string{}, flags[mqttClientId], mqttInsecureFlag(flags), flags[mqttPrefix], flags[mqttIdentifier])
+	dmcConfig := devicemanagement.NewConfig(flags[devMgmtUrl], flags[oauth2TokenUrl], oauthInsecureFlag(flags), flags[oauth2ClientId], flags[oauth2ClientSecret])
 
 	dmcConfig.Enabled = mqttConfig.Enabled
 
@@ -157,7 +157,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		),
 		webserver("public", listen(flags[listenAddress]), port(flags[servicePort]),
 			muxinit(func(ctx context.Context, identifier string, port string, svcCfg *appConfig, handler *http.ServeMux) error {
-				accessObjectAuthz, _ := strconv.ParseBool(flags[authzAccessObject])
+				accessObjectAuthz := accessObjectEnabled(flags)
 				defer policiesFile.Close()
 				return api.RegisterHandlers(ctx, serviceName, handler, m, s, policiesFile, api.WithAccessObjectAuthorization(accessObjectAuthz))
 			}),
@@ -248,6 +248,27 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	)
 
 	return runner, nil
+}
+
+// The bool toggles below intentionally use different interpretations.
+// The helpers are the minimal production seams so tests target actual
+// behavior: exact "true" comparison for the MQTT/OAuth toggles,
+// strconv semantics for the access-object toggle.
+func mqttEnabledFlag(flags flagMap) bool {
+	return flags[mqttEnabled] == "true"
+}
+
+func mqttInsecureFlag(flags flagMap) bool {
+	return flags[mqttInsecure] == "true"
+}
+
+func oauthInsecureFlag(flags flagMap) bool {
+	return flags[oauth2InsecureUrl] == "true"
+}
+
+func accessObjectEnabled(flags flagMap) bool {
+	v, _ := strconv.ParseBool(flags[authzAccessObject])
+	return v
 }
 
 // readinessProbes returns the named readiness stubs. Per harmonization
