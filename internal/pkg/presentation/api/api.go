@@ -16,6 +16,7 @@ import (
 	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/pkg/presentation/api/auth"
 	"github.com/diwise/iot-events/internal/pkg/storage"
+	"github.com/diwise/service-chassis/pkg/infrastructure/net/http/router"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
@@ -53,21 +54,18 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 
 	docs.RegisterHandlers(ctx, rootMux)
 
-	const apiPrefix0 string = "/api/v0"
-	const apiPrefix1 string = "/api/v1"
+	v0 := router.New(rootMux, router.WithPrefix("/api/v0"))
+	v0.Group(func(r router.ServeMux) {
+		r.Use(authz.RequireAccess(ReadMeasurements))
+		r.Get("measurements", NewQueryMeasurementsHandler(storage, log))
+		r.Get("measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
+	})
 
-	mux0 := http.NewServeMux()
-	mux0.HandleFunc("GET /measurements", NewQueryMeasurementsHandler(storage, log))
-	mux0.HandleFunc("GET /measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
-
-	v0 := http.StripPrefix(apiPrefix0, mux0)
-	rootMux.Handle("GET "+apiPrefix0+"/", authz.RequireAccess(ReadMeasurements)(v0))
-
-	mux1 := http.NewServeMux()
-	mux1.HandleFunc("GET /measurements", NewQueryMeasurementsHandler1(storage, log))
-
-	v1 := http.StripPrefix(apiPrefix1, mux1)
-	rootMux.Handle("GET "+apiPrefix1+"/", authz.RequireAccess(ReadMeasurements)(v1))
+	v1 := router.New(rootMux, router.WithPrefix("/api/v1"))
+	v1.Group(func(r router.ServeMux) {
+		r.Use(authz.RequireAccess(ReadMeasurements))
+		r.Get("measurements", NewQueryMeasurementsHandler1(storage, log))
+	})
 
 	return nil
 }
