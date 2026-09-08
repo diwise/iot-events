@@ -100,9 +100,12 @@ func (s *cloudEventSubscriber) Handle(m mediator.Message) bool {
 		return false
 	}
 
-	s.inbox <- m
-
-	return true
+	select {
+	case s.inbox <- m:
+		return true
+	case <-m.Context().Done():
+		return false
+	}
 }
 
 func (s *cloudEventSubscriber) run(ctx context.Context, eventSenderFunc CloudEventSenderFunc) {
@@ -190,7 +193,7 @@ func (s *cloudEventSubscriber) run(ctx context.Context, eventSenderFunc CloudEve
 			err = eventSenderFunc(ctx, ei)
 			if err != nil {
 				log.Error("failed to send event, add to retry queue", "err", err.Error())
-				retryQueue.enqueue(ei)
+				retryQueue.enqueue(ctx, ei)
 			}
 		}
 	}
@@ -270,8 +273,11 @@ func (q *failedEventQueue) start(ctx context.Context) {
 	}()
 }
 
-func (q *failedEventQueue) enqueue(info eventInfo) {
-	q.queue <- retryEvent{info: info}
+func (q *failedEventQueue) enqueue(ctx context.Context, info eventInfo) {
+	select {
+	case q.queue <- retryEvent{info: info}:
+	case <-ctx.Done():
+	}
 }
 
 func (q *failedEventQueue) backoffDelay(attempt int) time.Duration {

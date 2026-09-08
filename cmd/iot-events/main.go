@@ -179,6 +179,8 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			}
 
 			owned.messenger = messenger
+			owned.tracker = &handlerTracker{}
+			owned.cancel = cfg.cancelContextFn
 			owned.storage = s
 
 			ce = cloudevents.New(cfg.cloudeventsConfig, m)
@@ -210,6 +212,14 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			return nil
 		}),
 		onstarting(func(ctx context.Context, svcCfg *appConfig) (err error) {
+			// OnStarting failures bypass OnShutdown in the runner, so
+			// clean up acquired resources on every error path below.
+			defer func() {
+				if err != nil {
+					owned.close(ctx)
+				}
+			}()
+
 			m.Start(ctx)
 			ce.Start(ctx)
 
@@ -219,14 +229,19 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			}
 
 			messenger.Start()
-			messenger.RegisterTopicMessageHandler(flags[messengerTopic], application.NewMessageHandler(m))
-			messenger.RegisterTopicMessageHandler("message.accepted", measurements.NewMessageAcceptedHandler(s))
+
+			tracked := &trackingMessenger{MsgContext: messenger, tracker: owned.tracker}
+			if err = tracked.RegisterTopicMessageHandler(flags[messengerTopic], application.NewMessageHandler(m)); err != nil {
+				return fmt.Errorf("could not register topic handler: %w", err)
+			}
+			if err = tracked.RegisterTopicMessageHandler("message.accepted", measurements.NewMessageAcceptedHandler(s)); err != nil {
+				return fmt.Errorf("could not register message.accepted handler: %w", err)
+			}
 
 			return nil
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
 			owned.close(ctx)
-			svcCfg.cancelContextFn()
 
 			return nil
 		}),
@@ -246,13 +261,67 @@ func readinessProbes() map[string]k8shandlers.ServiceProber {
 	}
 }
 
+// Shutdown budget for admitted handler drain, within the runner's 30s
+// shutdown hook budget. The hook itself never receives the runner's
+// timeout, so shutdown derives its own bound here.
+const shutdownHandlerDrainTimeout = 10 * time.Second
+
+// handlerTracker tracks admitted topic-message deliveries so shutdown
+// can await them. The messaging library acknowledges on dispatch and its
+// Close only joins the dispatch loop, never the handler goroutines.
+type handlerTracker struct {
+	wg sync.WaitGroup
+}
+
+func (t *handlerTracker) track(next messaging.TopicMessageHandler) messaging.TopicMessageHandler {
+	return func(ctx context.Context, msg messaging.IncomingTopicMessage, log *slog.Logger) {
+		t.wg.Add(1)
+		defer t.wg.Done()
+		next(ctx, msg, log)
+	}
+}
+
+// wait blocks until tracked handlers complete or the timeout elapses,
+// reporting whether all handlers finished.
+func (t *handlerTracker) wait(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		t.wg.Wait()
+	}()
+
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// trackingMessenger decorates handler registration with delivery
+// tracking. All other MsgContext behavior is forwarded unchanged.
+type trackingMessenger struct {
+	messaging.MsgContext
+	tracker *handlerTracker
+}
+
+func (m *trackingMessenger) RegisterTopicMessageHandler(routingKey string, h messaging.TopicMessageHandler) error {
+	return m.MsgContext.RegisterTopicMessageHandler(routingKey, m.tracker.track(h))
+}
+
 // ownedResources tracks the resources created during OnInit so shutdown
-// stops inflow, then releases owned resources exactly once. Shutdown is
-// nil-safe (partial OnInit) and idempotent: the underlying messenger
-// Close is not safe to call twice, hence the sync.Once guard.
+// is nil-safe, ordered and idempotent. The underlying messenger Close is
+// not safe to call twice, hence the sync.Once guard.
+//
+// Shutdown order: stop inflow (messenger), await admitted handlers
+// within budget, cancel workers, then close storage. HTTP servers stay
+// live until after OnShutdown returns (runner behavior); that residual
+// window is documented, not fixed here.
 type ownedResources struct {
 	once      sync.Once
 	messenger messaging.MsgContext
+	tracker   *handlerTracker
+	cancel    func()
 	storage   interface{ Close() }
 }
 
@@ -260,6 +329,12 @@ func (o *ownedResources) close(context.Context) {
 	o.once.Do(func() {
 		if o.messenger != nil {
 			o.messenger.Close()
+		}
+		if o.tracker != nil {
+			o.tracker.wait(shutdownHandlerDrainTimeout)
+		}
+		if o.cancel != nil {
+			o.cancel()
 		}
 		if o.storage != nil {
 			o.storage.Close()

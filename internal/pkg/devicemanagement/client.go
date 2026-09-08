@@ -52,10 +52,13 @@ type client struct {
 	httpClient        http.Client
 	clientCredentials *clientcredentials.Config
 	keepRunning       *atomic.Bool
+	stopped           *atomic.Bool
 	queue             chan func()
 	knownDevices      sync.Map
 	useAuth           bool
 }
+
+var errClientStopped = errors.New("device management client is stopped")
 
 var tracer = otel.Tracer("iot-events/devicemanagement")
 
@@ -108,6 +111,7 @@ func New(ctx context.Context, cfg *Config) (Client, error) {
 		clientCredentials: oauthConfig,
 		httpClient:        *httpClient,
 		keepRunning:       &atomic.Bool{},
+		stopped:           &atomic.Bool{},
 		queue:             make(chan func()),
 		knownDevices:      sync.Map{},
 		useAuth:           cfg.UseAuth,
@@ -129,6 +133,7 @@ func (c *client) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			c.keepRunning.Store(false)
+			c.stopped.Store(true)
 			return
 		case fn := <-c.queue:
 			fn()
@@ -160,10 +165,30 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 		return device.(*Device), nil
 	}
 
+	if c.stopped.Load() {
+		return nil, errClientStopped
+	}
+
 	resultchan := make(chan Device)
 	errchan := make(chan error)
 
-	c.queue <- func() {
+	// sendResult/sendErr never block a worker on an abandoned caller:
+	// either the caller receives or its context is done.
+	sendResult := func(d Device) {
+		select {
+		case resultchan <- d:
+		case <-ctx.Done():
+		}
+	}
+	sendErr := func(err error) {
+		select {
+		case errchan <- err:
+		case <-ctx.Done():
+		}
+	}
+
+	select {
+	case c.queue <- func() {
 		var err error
 		ctx, span := tracer.Start(ctx, "get-device")
 		defer func() { tracing.RecordAnyErrorAndEndSpan(err, span) }()
@@ -171,14 +196,14 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 		deviceUrl := fmt.Sprintf("%s/api/v0/devices/%s", c.url, deviceID)
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, deviceUrl, nil)
 		if err != nil {
-			errchan <- fmt.Errorf("failed to create request: %w", err)
+			sendErr(fmt.Errorf("failed to create request: %w", err))
 			return
 		}
 
 		if c.useAuth {
 			token, err := c.refreshToken(ctx)
 			if err != nil {
-				errchan <- fmt.Errorf("failed to refresh token: %w", err)
+				sendErr(fmt.Errorf("failed to refresh token: %w", err))
 				return
 			}
 
@@ -187,23 +212,23 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			errchan <- fmt.Errorf("failed to perform request: %w", err)
+			sendErr(fmt.Errorf("failed to perform request: %w", err))
 			return
 		}
 		defer resp.Body.Close()
 
 		if resp.StatusCode == http.StatusNotFound {
-			errchan <- ErrNotFound
+			sendErr(ErrNotFound)
 			return
 		}
 
 		if resp.StatusCode == http.StatusUnauthorized {
-			errchan <- errRetry
+			sendErr(errRetry)
 			return
 		}
 
 		if resp.StatusCode != http.StatusOK {
-			errchan <- fmt.Errorf("%w: received status code %d", errInternal, resp.StatusCode)
+			sendErr(fmt.Errorf("%w: received status code %d", errInternal, resp.StatusCode))
 			return
 		}
 
@@ -214,11 +239,14 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 		b, _ := io.ReadAll(resp.Body)
 		err = json.Unmarshal(b, &response)
 		if err != nil {
-			errchan <- fmt.Errorf("failed to decode response body: %w", err)
+			sendErr(fmt.Errorf("failed to decode response body: %w", err))
 			return
 		}
 
-		resultchan <- response.Data
+		sendResult(response.Data)
+	}:
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 
 	select {
@@ -244,5 +272,7 @@ func (c *client) GetDevice(ctx context.Context, deviceID string) (*Device, error
 			return c.GetDevice(ctx, deviceID)
 		}
 		return nil, e
+	case <-ctx.Done():
+		return nil, ctx.Err()
 	}
 }

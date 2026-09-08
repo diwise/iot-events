@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"regexp"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -50,12 +51,24 @@ func NewConfig(enabled bool, brokerUrl string, user string, password string, top
 }
 
 type mqttClient struct {
-	pub     chan TopicMessage
-	errmsg  chan TopicMessage
-	close   chan struct{}
-	pc      paho.Client
-	started atomic.Bool
-	enabled atomic.Bool
+	pub      chan TopicMessage
+	errmsg   chan TopicMessage
+	pc       paho.Client
+	started  atomic.Bool
+	enabled  atomic.Bool
+	stopCh   chan struct{}
+	stopOnce sync.Once
+}
+
+// waitToken waits for a paho token while observing ctx, so shutdown
+// never hangs on Connect/Publish against an unavailable broker.
+func waitToken(ctx context.Context, token paho.Token) error {
+	select {
+	case <-token.Done():
+		return token.Error()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 //go:generate moq -rm -out mqtt_mock.go . Client
@@ -121,10 +134,10 @@ func NewClient(ctx context.Context, cfg Config) (Client, error) {
 	c := &mqttClient{
 		pub:     make(chan TopicMessage),
 		errmsg:  make(chan TopicMessage),
-		close:   make(chan struct{}),
 		pc:      pc,
 		started: atomic.Bool{},
 		enabled: atomic.Bool{},
+		stopCh:  make(chan struct{}),
 	}
 
 	c.enabled.Store(true)
@@ -159,16 +172,18 @@ func (c *mqttClient) retryPublish(ctx context.Context) {
 
 	log.Debug("starting MQTT retry channel...")
 
+	drop := func(m TopicMessage) {
+		log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+	}
+
 	for {
 		select {
-		case <-c.close:
+		case <-ctx.Done():
 			for {
 				select {
 				case m := <-c.errmsg:
-					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+					drop(m)
 				default:
-					close(c.errmsg)
-					close(c.close)
 					return
 				}
 			}
@@ -180,17 +195,13 @@ func (c *mqttClient) retryPublish(ctx context.Context) {
 
 			go func() {
 				select {
-				case <-c.close:
-					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
-					return
-				default:
+				case <-ctx.Done():
+					drop(m)
+				case <-time.After(time.Duration(m.Retry()) * time.Second):
 					select {
-					case <-c.close:
-						return
-					default:
-						time.AfterFunc(time.Duration(m.Retry())*time.Second, func() {
-							c.pub <- m
-						})
+					case c.pub <- m:
+					case <-ctx.Done():
+						drop(m)
 					}
 				}
 			}()
@@ -207,9 +218,9 @@ func (c *mqttClient) run(ctx context.Context) error {
 			return nil
 		}
 
-		if token := c.pc.Connect(); token.Wait() && token.Error() != nil {
-			log.Error("connection error", "err", token.Error())
-			return token.Error()
+		if err := waitToken(ctx, c.pc.Connect()); err != nil {
+			log.Error("connection error", "err", err.Error())
+			return err
 		}
 
 		return nil
@@ -221,15 +232,16 @@ func (c *mqttClient) run(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			c.started.Store(false)
+			c.stopOnce.Do(func() {
+				close(c.stopCh)
+			})
 
 			for {
 				select {
 				case m := <-c.pub:
 					log.Warn("dropping message because client is shutting down...", "topic", m.TopicName())
 				default:
-					close(c.pub)
 					c.pc.Disconnect(100)
-					c.close <- struct{}{}
 					return nil
 				}
 			}
@@ -246,12 +258,19 @@ func (c *mqttClient) run(ctx context.Context) error {
 			}
 
 			token := c.pc.Publish(m.TopicName(), 0, false, m.Body())
-			token.Wait()
 
-			if err := token.Error(); err != nil {
+			if err := waitToken(ctx, token); err != nil {
+				if ctx.Err() != nil {
+					log.Warn("dropping message because client is shutting down...", "topic", m.TopicName())
+					continue
+				}
 				log.Error("failed to publish mqtt message", "topic", m.TopicName(), "err", err.Error())
 				m.Err(err)
-				c.errmsg <- m
+				select {
+				case c.errmsg <- m:
+				case <-ctx.Done():
+					log.Warn("dropping failed message because client is shutting down...", "topic", m.TopicName())
+				}
 			} else {
 				log.Debug("mqtt message published", "topic", m.TopicName())
 			}
@@ -267,9 +286,14 @@ func (c *mqttClient) Publish(ctx context.Context, msg TopicMessage) error {
 		return fmt.Errorf("mqtt client not started")
 	}
 
-	c.pub <- msg
-
-	return nil
+	select {
+	case c.pub <- msg:
+		return nil
+	case <-c.stopCh:
+		return fmt.Errorf("mqtt client stopping, cannot publish message")
+	case <-ctx.Done():
+		return fmt.Errorf("mqtt client stopping, cannot publish message: %w", ctx.Err())
+	}
 }
 
 type TopicMessage interface {
@@ -656,8 +680,12 @@ func (s *mqttSubscriber) Mailbox() chan mediator.Message {
 
 func (s *mqttSubscriber) Handle(m mediator.Message) bool {
 	if m.Type() == s.topic {
-		s.inbox <- m
-		return true
+		select {
+		case s.inbox <- m:
+			return true
+		case <-m.Context().Done():
+			return false
+		}
 	}
 
 	return false
