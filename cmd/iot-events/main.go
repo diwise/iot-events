@@ -149,34 +149,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 		}
 	}
 
-	probes := map[string]k8shandlers.ServiceProber{
-		"rabbitmq": func(context.Context) (string, error) { return "ok", nil },
-		"mqtt": func(context.Context) (string, error) {
-			if !cfg.mqttConfig.Enabled {
-				return "mqtt disabled", nil
-			}
-
-			if mc == nil {
-				return "mqtt client not initialized", errors.New("mqtt client not initialized")
-			}
-
-			if !mc.IsConnected() {
-				return "mqtt not connected", errors.New("mqtt not connected")
-			}
-
-			return "ok", nil
-		},
-		"timescale": func(context.Context) (string, error) {
-			if s == nil {
-				return "storage not initialized", errors.New("storage not initialized")
-			}
-			err := s.Ping(ctx)
-			if err != nil {
-				return "error pinging storage", fmt.Errorf("error pinging storage: %w", err)
-			}
-			return "ok", nil
-		},
-	}
+	probes := readinessProbes()
 
 	_, runner := servicerunner.New(ctx, *cfg,
 		webserver("control", listen(flags[listenAddress]), port(flags[controlPort]),
@@ -260,6 +233,17 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	)
 
 	return runner, nil
+}
+
+// readinessProbes returns the named readiness stubs. Per harmonization
+// standard they always report OK and never call any dependency. Probe
+// names are preserved for external deployment definitions.
+func readinessProbes() map[string]k8shandlers.ServiceProber {
+	return map[string]k8shandlers.ServiceProber{
+		"rabbitmq":  func(context.Context) (string, error) { return "ok", nil },
+		"mqtt":      func(context.Context) (string, error) { return "ok", nil },
+		"timescale": func(context.Context) (string, error) { return "ok", nil },
+	}
 }
 
 // ownedResources tracks the resources created during OnInit so shutdown

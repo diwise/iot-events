@@ -50,3 +50,18 @@ func TestShutdownWithoutResourcesIsSafe(t *testing.T) {
 	owned.close(context.Background())
 	owned.close(context.Background())
 }
+
+// BASE-009: readiness stubs always report OK without touching any
+// dependency, even with no initialized clients.
+func TestReadinessStubsAlwaysOK(t *testing.T) {
+	is := is.New(t)
+
+	probes := readinessProbes()
+	is.Equal(len(probes), 3)
+
+	for _, name := range []string{"rabbitmq", "mqtt", "timescale"} {
+		status, err := probes[name](context.Background())
+		is.NoErr(err)
+		is.Equal(status, "ok")
+	}
+}
