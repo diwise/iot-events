@@ -46,3 +46,49 @@ func TestMigratedRoutes(t *testing.T) {
 	resp, _ = testRequest(ts, http.MethodGet, "/api/v0/measurements/device-1", createJWTWithTenants([]string{"ignored"}), nil)
 	is.Equal(resp.StatusCode, http.StatusOK)
 }
+
+// REV-004: authorization wraps the whole version subtree, including
+// unknown paths — not just the registered endpoints.
+func TestAuthCoversEntireVersionSubtree(t *testing.T) {
+	policies := map[string]struct {
+		policy string
+		opts   []api.RegisterOption
+	}{
+		"legacy":        {legacyPolicy, nil},
+		"access-object": {accessObjectPolicy, []api.RegisterOption{api.WithAccessObjectAuthorization(true)}},
+	}
+
+	for name, p := range policies {
+		t.Run(name, func(t *testing.T) {
+			is := is.New(t)
+			mm := &mediator.MediatorMock{
+				PublishFunc: func(message mediator.Message) {},
+			}
+			sm := &storage.StorageMock{}
+			mux := http.NewServeMux()
+
+			err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(p.policy)), p.opts...)
+			is.NoErr(err)
+
+			ts := httptest.NewServer(mux)
+			defer ts.Close()
+
+			// No token anywhere under the version prefix must yield 401,
+			// including paths with no registered endpoint.
+			for _, tc := range []struct{ method, path string }{
+				{http.MethodGet, "/api/v0/measurements"},
+				{http.MethodGet, "/api/v0/not-a-route"},
+				{http.MethodGet, "/api/v0/measurements/"},
+				{http.MethodHead, "/api/v0/measurements"},
+				{http.MethodGet, "/api/v1/not-a-route"},
+			} {
+				resp, _ := testRequest(ts, tc.method, tc.path, "", nil)
+				is.Equal(resp.StatusCode, http.StatusUnauthorized)
+			}
+
+			// A valid token passes auth, so an unknown path yields 404.
+			resp, _ := testRequest(ts, http.MethodGet, "/api/v0/not-a-route", createJWTWithTenants([]string{"ignored"}), nil)
+			is.Equal(resp.StatusCode, http.StatusNotFound)
+		})
+	}
+}

@@ -54,16 +54,18 @@ func RegisterHandlers(ctx context.Context, serviceName string, rootMux *http.Ser
 
 	docs.RegisterHandlers(ctx, rootMux)
 
+	// Auth wraps the whole version subtree (including unknown paths),
+	// matching the pre-migration placement outside route matching.
 	v0 := router.New(rootMux, router.WithPrefix("/api/v0"))
+	v0.Use(authz.RequireAccess(ReadMeasurements))
 	v0.Group(func(r router.ServeMux) {
-		r.Use(authz.RequireAccess(ReadMeasurements))
 		r.Get("measurements", NewQueryMeasurementsHandler(storage, log))
 		r.Get("measurements/{deviceID}", NewFetchMeasurementsHandler(storage, log))
 	})
 
 	v1 := router.New(rootMux, router.WithPrefix("/api/v1"))
+	v1.Use(authz.RequireAccess(ReadMeasurements))
 	v1.Group(func(r router.ServeMux) {
-		r.Use(authz.RequireAccess(ReadMeasurements))
 		r.Get("measurements", NewQueryMeasurementsHandler1(storage, log))
 	})
 
