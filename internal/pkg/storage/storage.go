@@ -177,6 +177,7 @@ func New(ctx context.Context, config Config) (Storage, error) {
 
 	err = initialize(ctx, pool)
 	if err != nil {
+		pool.Close()
 		return nil, err
 	}
 
@@ -216,6 +217,7 @@ func connect(ctx context.Context, config Config) (*pgxpool.Pool, error) {
 
 	err = p.Ping(ctx)
 	if err != nil {
+		p.Close()
 		return nil, err
 	}
 

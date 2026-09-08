@@ -11,6 +11,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/diwise/iot-events/internal/pkg/application"
@@ -118,7 +119,8 @@ func main() {
 		cancelContextFn:   cancel,
 	}
 
-	runner, _ := initialize(ctx, flags, cfg, policies, mf)
+	runner, err := initialize(ctx, flags, cfg, policies, mf)
+	exitIf(err, logger, "failed to initialize service runner")
 
 	err = runner.Run(ctx)
 	exitIf(err, logger, "failed to start service runner")
@@ -133,6 +135,19 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	var m mediator.Mediator
 	var mc mqtt.Client
 	var dmc devicemanagement.Client
+
+	owned := &ownedResources{}
+
+	// closeStorage releases an opened but not yet owned storage. It is
+	// used on partial OnInit failure, where OnShutdown never runs.
+	// Note: an initialized-but-never-started messenger must NOT be
+	// closed here; its Close blocks until the worker loop runs.
+	closeStorage := func() {
+		if s != nil {
+			s.Close()
+			s = nil
+		}
+	}
 
 	probes := map[string]k8shandlers.ServiceProber{
 		"rabbitmq": func(context.Context) (string, error) { return "ok", nil },
@@ -186,28 +201,36 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 
 			messenger, err = messaging.Initialize(ctx, *cfg.messengerConfig)
 			if err != nil {
+				closeStorage()
 				return fmt.Errorf("could not initialize messenger %w", err)
 			}
+
+			owned.messenger = messenger
+			owned.storage = s
 
 			ce = cloudevents.New(cfg.cloudeventsConfig, m)
 
 			metadata, err := measurements.LoadMetadata(ctx, metadataFile)
 			if err != nil {
+				closeStorage()
 				return fmt.Errorf("failed to load metadata: %w", err)
 			}
 
 			err = s.SeedMetadata(ctx, metadata)
 			if err != nil {
+				closeStorage()
 				return fmt.Errorf("could not seed metadata %w", err)
 			}
 
 			mc, err = mqtt.NewClient(ctx, *cfg.mqttConfig)
 			if err != nil {
+				closeStorage()
 				return fmt.Errorf("could not create mqtt client %w", err)
 			}
 
 			dmc, err = devicemanagement.New(ctx, cfg.dmcConfig)
 			if err != nil {
+				closeStorage()
 				return fmt.Errorf("could not create device management client %w", err)
 			}
 
@@ -229,7 +252,7 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 			return nil
 		}),
 		onshutdown(func(ctx context.Context, svcCfg *appConfig) error {
-			messenger.Close()
+			owned.close(ctx)
 			svcCfg.cancelContextFn()
 
 			return nil
@@ -237,6 +260,27 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	)
 
 	return runner, nil
+}
+
+// ownedResources tracks the resources created during OnInit so shutdown
+// stops inflow, then releases owned resources exactly once. Shutdown is
+// nil-safe (partial OnInit) and idempotent: the underlying messenger
+// Close is not safe to call twice, hence the sync.Once guard.
+type ownedResources struct {
+	once      sync.Once
+	messenger messaging.MsgContext
+	storage   interface{ Close() }
+}
+
+func (o *ownedResources) close(context.Context) {
+	o.once.Do(func() {
+		if o.messenger != nil {
+			o.messenger.Close()
+		}
+		if o.storage != nil {
+			o.storage.Close()
+		}
+	})
 }
 
 func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, flagMap) {
