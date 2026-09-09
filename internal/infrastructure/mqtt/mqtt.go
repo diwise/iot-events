@@ -558,7 +558,7 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 			} else if rec.StringValue != "" {
 				v.Value = rec.StringValue
 			} else {
-				log.Debug("record contains no value", "record_name", rec.Name)
+				log.Debug("record contains no value", "sensor_id", rec.Name)
 				continue
 			}
 

@@ -77,7 +77,7 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 
 			rec, ok := pack.GetRecord(senml.FindByName(r.Name))
 			if !ok {
-				log.Warn("could not find record", "name", r.Name)
+				log.Warn("could not find record", "sensor_id", r.Name)
 				continue
 			}
 
