@@ -77,7 +77,9 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 
 			rec, ok := pack.GetRecord(senml.FindByName(r.Name))
 			if !ok {
-				log.Warn("could not find record", "sensor_id", r.Name)
+				// r.Name är ett SenML-recordnamn, ingen sensoridentitet:
+				// sensor_id (devEUI/MAC) finns inte i detta flöde.
+				log.Warn("could not find record", "name", r.Name)
 				continue
 			}
 
