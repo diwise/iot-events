@@ -367,6 +367,7 @@ func parseExternalConfig(ctx context.Context, flags flagMap) (context.Context, f
 
 	// Allow environment variables to override certain defaults
 	envOrDef := env.GetVariableOrDefault
+	flags[listenAddress] = envOrDef(ctx, "LISTEN_ADDRESS", flags[listenAddress])
 	flags[servicePort] = envOrDef(ctx, "SERVICE_PORT", flags[servicePort])
 	flags[controlPort] = envOrDef(ctx, "CONTROL_PORT", flags[controlPort])
 

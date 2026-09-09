@@ -104,14 +104,23 @@ func TestCLIOverridesEnv(t *testing.T) {
 	is.Equal(flags[metadataFile], "/tmp/m.csv")
 }
 
-// HARM-004: locks the current limitation that LISTEN_ADDRESS exists in
-// the flag model but can be controlled neither via env nor CLI.
-// Changing this is a deliberate decision with external impact.
-func TestListenAddressNotExternallyConfigurable(t *testing.T) {
+// EVENTS-005: LISTEN_ADDRESS follows the same env convention as the
+// sibling services. Without the env var the default is preserved.
+func TestListenAddressExternallyConfigurable(t *testing.T) {
 	is := is.New(t)
 	withCleanFlags(t, []string{"iot-events"})
 
 	t.Setenv("LISTEN_ADDRESS", "127.0.0.1")
+
+	_, flags := parseExternalConfig(context.Background(), defaultFlags())
+
+	is.Equal(flags[listenAddress], "127.0.0.1")
+}
+
+// EVENTS-005: without LISTEN_ADDRESS the default is preserved.
+func TestListenAddressDefaultPreserved(t *testing.T) {
+	is := is.New(t)
+	withCleanFlags(t, []string{"iot-events"})
 
 	_, flags := parseExternalConfig(context.Background(), defaultFlags())
 
