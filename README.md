@@ -34,6 +34,7 @@ Precedens: default < miljovariabel < CLI-flagga. RabbitMQ konfigureras i ovrigt 
 
 | Variabel | Default | Notering |
 | --- | --- | --- |
+| `LISTEN_ADDRESS` | `0.0.0.0` | Bind-adress for bada webbservrarna |
 | `SERVICE_PORT` | `8080` | Publik server (`/api/v0/measurements`, `/api/v1/measurements`, `/openapi.yaml`, `/docs`) |
 | `CONTROL_PORT` | `8000` | Kontrollserver: pprof, liveness, readiness-stubbar (`rabbitmq`, `mqtt`, `timescale`) som returnerar OK |
 | `RABBITMQ_TOPIC` | `#` | Topicfilter vid registrering; `message.accepted` far dessutom en dedikerad lagringshandler |
@@ -75,7 +76,7 @@ Health paths pa kontrollservern (`CONTROL_PORT`): `/health`, `/healthz`, `/livez
 
 Externa Kubernetes- och Compose-definitioner finns inte i detta repo och ar darfor inte inventerade har.
 
-`LISTEN_ADDRESS` ar hardkodat till `0.0.0.0` i flaggmodellen och kan varken styras via env eller CLI i nulaget.
+Alla booleska toggles (`MQTT_ENABLED`, `MQTT_INSECURE`, `OAUTH2_REALM_INSECURE`, `AUTHZ_ACCESS_OBJECT_ENABLED`) tolkas med strconv-semantik; ogiltiga varden blir `false`.
 
 ## CLI flags
  - `cloudevents` - Configuration file for cloud events (default `/opt/diwise/config/cloudevents.yaml`)
@@ -88,3 +89,35 @@ Externa Kubernetes- och Compose-definitioner finns inte i detta repo och ar darf
  - `cloudevents.yaml` - Required at startup, defines CloudEvents subscribers.
  - `authz.rego` - Required at startup, OPA policy.
  - `metadata.csv` - Optional seed metadata; startup fortsatter utan den.
+
+# API
+
+Alla routes kraver scope `measurements.read` (bearer-JWT via OPA-policy). Hela versionstradet ligger bakom auth, inklusive okanda paths.
+
+| Metod | Path | Notering |
+| --- | --- | --- |
+| `GET` | `/api/v0/measurements` | Fragestallning utan metadatastod |
+| `GET` | `/api/v0/measurements/{deviceID}` | Matningar for enhet; `?latest=true` ger senaste, `?urn=` maste vara `urn:oma:lwm2m...` |
+| `GET` | `/api/v1/measurements` | Fragestallning med metadatastod via `metadata[nyckel]`; ger 403 utan tillatna tenants |
+| `GET` | `/openapi.yaml` | OpenAPI 3.0-spec (se `assets/docs/openapi.yaml`) |
+| `GET` | `/docs` | Redoc-sida for specen |
+
+v0- och v1-paths, queryparametrar och svarskoder i `assets/docs/openapi.yaml` motsvarar faktiska handlers i `internal/presentation/api`; specen andras inte utan runtimeandring.
+
+# Lifecycle och beroenden
+
+Tjansten kor via `servicerunner`: `OnInit` (storage, messenger, mediator, MQTT, device-management), `OnStarting` (mediator, CloudEvents, MQTT-publisher, topichandlers for `RABBITMQ_TOPIC` samt dedikerad `message.accepted`-lagringshandler), `OnShutdown` (stoppar inflode, dränerar antagna handleranrop inom 10 s, stanger storage).
+
+Readiness-stubbar (`rabbitmq`, `mqtt`, `timescale`) returnerar alltid OK och anropar inga beroenden.
+
+Externa beroenden: PostgreSQL/TimescaleDB, RabbitMQ (kan stangas av med `RABBITMQ_DISABLED`), MQTT-broker (valfri via `MQTT_ENABLED`; aktiverar ocksa device-management-klienten), `iot-device-mgmt` for enhetsuppslag, samt CloudEvents-mottagare enligt `cloudevents.yaml`.
+
+# Verifiering
+
+```bash
+gofmt -l cmd/ internal/
+go test -count=1 ./...
+go vet ./...
+go build ./...
+docker build -f deployments/Dockerfile .
+```
