@@ -139,23 +139,22 @@ func TestParseLogLevel(t *testing.T) {
 	is.Equal(parseLogLevel("bogus"), slog.LevelDebug)
 }
 
-// REV-015: exact-"true" toggles versus the strconv-parsed toggle use
-// intentionally different interpretations. Tests target the production
-// seams so a changed interpretation breaks them.
+// EVENTS-005: all bool toggles share the same strconv interpretation.
+// Tests target the production seams so a changed interpretation
+// breaks them.
 func TestBoolToggleInterpretations(t *testing.T) {
 	for _, tc := range []struct {
-		name         string
-		value        string
-		exact        bool
-		accessObject bool
+		name  string
+		value string
+		want  bool
 	}{
-		{"exact true", "true", true, true},
-		{"uppercase TRUE", "TRUE", false, true},
-		{"numeric 1", "1", false, true},
-		{"false", "false", false, false},
-		{"numeric 0", "0", false, false},
-		{"empty", "", false, false},
-		{"invalid", "bogus", false, false},
+		{"exact true", "true", true},
+		{"uppercase TRUE", "TRUE", true},
+		{"numeric 1", "1", true},
+		{"false", "false", false},
+		{"numeric 0", "0", false},
+		{"empty", "", false},
+		{"invalid", "bogus", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			is := is.New(t)
@@ -166,10 +165,10 @@ func TestBoolToggleInterpretations(t *testing.T) {
 			flags[oauth2InsecureUrl] = tc.value
 			flags[authzAccessObject] = tc.value
 
-			is.Equal(mqttEnabledFlag(flags), tc.exact)
-			is.Equal(mqttInsecureFlag(flags), tc.exact)
-			is.Equal(oauthInsecureFlag(flags), tc.exact)
-			is.Equal(accessObjectEnabled(flags), tc.accessObject)
+			is.Equal(mqttEnabledFlag(flags), tc.want)
+			is.Equal(mqttInsecureFlag(flags), tc.want)
+			is.Equal(oauthInsecureFlag(flags), tc.want)
+			is.Equal(accessObjectEnabled(flags), tc.want)
 		})
 	}
 }

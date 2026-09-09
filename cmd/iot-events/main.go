@@ -250,20 +250,23 @@ func initialize(ctx context.Context, flags flagMap, cfg *appConfig, policiesFile
 	return runner, nil
 }
 
-// The bool toggles below intentionally use different interpretations.
-// The helpers are the minimal production seams so tests target actual
-// behavior: exact "true" comparison for the MQTT/OAuth toggles,
-// strconv semantics for the access-object toggle.
+// All bool toggles below share the same interpretation: strconv
+// semantics, where invalid values safely evaluate to false. The
+// helpers are the minimal production seams so tests target actual
+// behavior.
 func mqttEnabledFlag(flags flagMap) bool {
-	return flags[mqttEnabled] == "true"
+	v, _ := strconv.ParseBool(flags[mqttEnabled])
+	return v
 }
 
 func mqttInsecureFlag(flags flagMap) bool {
-	return flags[mqttInsecure] == "true"
+	v, _ := strconv.ParseBool(flags[mqttInsecure])
+	return v
 }
 
 func oauthInsecureFlag(flags flagMap) bool {
-	return flags[oauth2InsecureUrl] == "true"
+	v, _ := strconv.ParseBool(flags[oauth2InsecureUrl])
+	return v
 }
 
 func accessObjectEnabled(flags flagMap) bool {
