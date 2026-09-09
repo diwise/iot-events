@@ -1,12 +1,6 @@
 module github.com/diwise/iot-events
 
-go 1.26
-
-require (
-	github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775
-	github.com/google/uuid v1.6.0
-	go.opentelemetry.io/otel v1.45.0
-)
+go 1.27
 
 require (
 	github.com/agnivade/levenshtein v1.2.1 // indirect
@@ -86,12 +80,15 @@ require (
 	github.com/cloudevents/sdk-go/v2 v2.16.2
 	github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003
 	github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610
+	github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-chi/jwtauth/v5 v5.3.2
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/matryer/is v1.4.1
 	github.com/open-policy-agent/opa v1.19.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
+	go.opentelemetry.io/otel v1.45.0
 	go.opentelemetry.io/otel/trace v1.45.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.47.0

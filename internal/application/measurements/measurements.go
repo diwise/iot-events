@@ -62,7 +62,7 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 			return
 		}
 
-		deviceID := strings.Split(header.Name, "/")[0]
+		deviceID, _, _ := strings.Cut(header.Name, "/")
 		urn := header.StringValue
 		lat, lon, _ := pack.GetLatLon()
 

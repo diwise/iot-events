@@ -44,7 +44,7 @@ func TestEnqueueDropsOnCanceledContext(t *testing.T) {
 		return nil
 	})
 
-	for i := 0; i < 1024; i++ {
+	for range 1024 {
 		q.enqueue(context.Background(), retryEvent{}.info)
 	}
 

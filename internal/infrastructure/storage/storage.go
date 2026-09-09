@@ -278,8 +278,7 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 
 	_, err = c.Exec(ctx, `SELECT create_hypertable('events_measurements', 'time');`)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			if pgErr.Code != "TS110" {
 				return err
 			}
