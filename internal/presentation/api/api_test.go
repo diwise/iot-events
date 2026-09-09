@@ -10,8 +10,8 @@ import (
 
 	"github.com/diwise/iot-events/internal/pkg/measurements"
 	"github.com/diwise/iot-events/internal/pkg/mediator"
-	"github.com/diwise/iot-events/internal/pkg/presentation/api"
 	"github.com/diwise/iot-events/internal/pkg/storage"
+	"github.com/diwise/iot-events/internal/presentation/api"
 	"github.com/go-chi/jwtauth/v5"
 	"github.com/matryer/is"
 )
