@@ -3,9 +3,9 @@ package main
 import (
 	"context"
 
+	"github.com/diwise/iot-events/internal/infrastructure/cloudevents"
 	"github.com/diwise/iot-events/internal/infrastructure/mqtt"
 	"github.com/diwise/iot-events/internal/infrastructure/storage"
-	"github.com/diwise/iot-events/internal/pkg/cloudevents"
 	"github.com/diwise/iot-events/internal/pkg/devicemanagement"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/servicerunner"
