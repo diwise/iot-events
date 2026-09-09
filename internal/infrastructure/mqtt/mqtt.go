@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/diwise/iot-events/internal/infrastructure/devicemanagement"
-	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	paho "github.com/eclipse/paho.mqtt.golang"

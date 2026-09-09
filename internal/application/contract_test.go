@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"testing"
 
-	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/matryer/is"
 )

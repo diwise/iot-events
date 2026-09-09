@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/senml"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"golang.org/x/sys/unix"

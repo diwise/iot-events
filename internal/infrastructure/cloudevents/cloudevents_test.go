@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/matryer/is"
 )

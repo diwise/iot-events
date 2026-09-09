@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/diwise/iot-events/internal/pkg/mediator"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/matryer/is"
 )
 

@@ -5,7 +5,7 @@ package storage
 
 import (
 	"context"
-	collector "github.com/diwise/iot-events/internal/pkg/measurements"
+	collector "github.com/diwise/iot-events/internal/application/measurements"
 	"sync"
 )
 

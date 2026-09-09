@@ -12,9 +12,9 @@ import (
 	"strings"
 
 	"github.com/diwise/iot-events/assets/docs"
+	messagecollector "github.com/diwise/iot-events/internal/application/measurements"
+	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/iot-events/internal/infrastructure/storage"
-	messagecollector "github.com/diwise/iot-events/internal/pkg/measurements"
-	"github.com/diwise/iot-events/internal/pkg/mediator"
 	"github.com/diwise/iot-events/internal/presentation/api/auth"
 	"github.com/diwise/service-chassis/pkg/infrastructure/net/http/router"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"

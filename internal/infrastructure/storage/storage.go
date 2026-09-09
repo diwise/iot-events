@@ -6,7 +6,7 @@ import (
 	"log/slog"
 	"time"
 
-	collector "github.com/diwise/iot-events/internal/pkg/measurements"
+	collector 	"github.com/diwise/iot-events/internal/application/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/env"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/jackc/pgx/v5"

@@ -15,7 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 
-	"github.com/diwise/iot-events/internal/pkg/measurements"
+	"github.com/diwise/iot-events/internal/application/measurements"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 )
 
