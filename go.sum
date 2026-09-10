@@ -24,8 +24,8 @@ github.com/dgryski/trifles v0.0.0-20230903005119-f50d829f2e54 h1:SG7nF6SRlWhcT7c
 github.com/dgryski/trifles v0.0.0-20230903005119-f50d829f2e54/go.mod h1:if7Fbed8SFyPtHLHbg49SI7NAdJiC5WIA09pe59rfAA=
 github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003 h1:ihc06l5RoBIf0gkpIkmCAsyWILmCxxOJrV2FHYRlAfg=
 github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003/go.mod h1:oxItnOgjQbbE2Qn2nSC/qNL3eAUGy6lzGZjcjUd7nQY=
-github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610 h1:r4vY4YdZh2reo6Wfsl2TU3txMEX2Z4mdwfDF8g5Xsrc=
-github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610/go.mod h1:ufA3dosHOpdrV7y/Cx5hOPNiWM4hD82YHNlsN3T4dLQ=
+github.com/diwise/senml v0.0.0-20260909175035-ac3958b9698e h1:UoHDdTewMk/lr4etUFR5thPp4Y+eJ6hxlpqMN+As42U=
+github.com/diwise/senml v0.0.0-20260909175035-ac3958b9698e/go.mod h1:FTeLotfGdc+LoIo2JyZLqSw8wbMVyB0vz2ynz5xmkJ8=
 github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775 h1:PXqidIv0Jpt0gnOJ3KlRDfYgeuRlsoWioeWiG9P06sk=
 github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775/go.mod h1:dyk0wPZG/iOEnEDE/bi6Uggj3zDmVaplOLkhUCr1V4o=
 github.com/dustin/go-humanize v1.0.1 h1:GzkhY7T5VNhEkwH0PVJgjz+fX1rhBrR7pRT3mDkpeCY=

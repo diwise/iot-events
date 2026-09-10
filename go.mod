@@ -79,7 +79,7 @@ require (
 	github.com/cloudevents/sdk-go/observability/opentelemetry/v2 v2.16.2
 	github.com/cloudevents/sdk-go/v2 v2.16.2
 	github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003
-	github.com/diwise/senml v0.0.0-20251022134045-d0045d1dd610
+	github.com/diwise/senml v0.0.0-20260909175035-ac3958b9698e
 	github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775
 	github.com/eclipse/paho.mqtt.golang v1.5.1
 	github.com/go-chi/jwtauth/v5 v5.3.2
