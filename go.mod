@@ -55,7 +55,7 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.45.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.45.0 // indirect
 	go.opentelemetry.io/otel/log v0.21.0 // indirect
-	go.opentelemetry.io/otel/metric v1.45.0 // indirect
+	go.opentelemetry.io/otel/metric v1.46.0 // indirect
 	go.opentelemetry.io/otel/sdk v1.45.0 // indirect
 	go.opentelemetry.io/otel/sdk/log v0.21.0 // indirect
 	go.opentelemetry.io/otel/sdk/metric v1.45.0 // indirect
@@ -78,7 +78,7 @@ require (
 require (
 	github.com/cloudevents/sdk-go/observability/opentelemetry/v2 v2.16.2
 	github.com/cloudevents/sdk-go/v2 v2.16.2
-	github.com/diwise/messaging-golang v0.0.0-20250628135946-f23f34d06003
+	github.com/diwise/messaging-golang v0.0.0-20260910052156-098a088f6b4f
 	github.com/diwise/senml v0.0.0-20260909175035-ac3958b9698e
 	github.com/diwise/service-chassis v0.0.0-20260602135046-9f4adf349775
 	github.com/eclipse/paho.mqtt.golang v1.5.1
@@ -88,8 +88,8 @@ require (
 	github.com/matryer/is v1.4.1
 	github.com/open-policy-agent/opa v1.19.1
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.70.0
-	go.opentelemetry.io/otel v1.45.0
-	go.opentelemetry.io/otel/trace v1.45.0
+	go.opentelemetry.io/otel v1.46.0
+	go.opentelemetry.io/otel/trace v1.46.0
 	golang.org/x/oauth2 v0.36.0
 	golang.org/x/sys v0.47.0
 	gopkg.in/yaml.v2 v2.4.0

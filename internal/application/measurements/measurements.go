@@ -17,6 +17,11 @@ type MeasurementStorer interface {
 	SaveAll(ctx context.Context, m []Measurement) error
 }
 
+var (
+	errMissingHeader = errors.New("senml pack contains no header record")
+	errMissingTenant = errors.New("senml pack contains no tenant record")
+)
+
 type MeasurementRetriever interface {
 	Query(ctx context.Context, q QueryParams, tenants []string) QueryResult
 	QueryDevice(ctx context.Context, deviceID string, tenants []string) QueryResult
@@ -28,24 +33,24 @@ type MeasurementRetriever interface {
 }
 
 func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandler {
-	return func(ctx context.Context, itm messaging.IncomingTopicMessage, log *slog.Logger) {
+	return func(ctx context.Context, itm messaging.IncomingTopicMessage, log *slog.Logger) error {
 		var m messageAccepted
 
 		err := json.Unmarshal(itm.Body(), &m)
 		if err != nil {
 			log.Error("could not unmarshal message accepted", "err", err.Error())
-			return
+			return messaging.Permanent(err)
 		}
 
 		if len(m.Pack) == 0 {
 			log.Debug("senml pack contains no records")
-			return
+			return nil
 		}
 
 		err = m.Pack.Validate()
 		if err != nil {
 			log.Error("invalid senml pack in message accepted", "err", err.Error())
-			return
+			return messaging.Permanent(err)
 		}
 
 		pack := m.Pack.Clone()
@@ -53,13 +58,13 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 		header, ok := pack.GetRecord(senml.FindByName("0"))
 		if !ok {
 			log.Error("could not find header record (0)")
-			return
+			return messaging.Permanent(errMissingHeader)
 		}
 
 		tenant, ok := pack.GetStringValue(senml.FindByName("tenant"))
 		if !ok {
 			log.Error("could not find tenant record")
-			return
+			return messaging.Permanent(errMissingTenant)
 		}
 
 		deviceID, _, _ := strings.Cut(header.Name, "/")
@@ -105,10 +110,12 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 			}
 		}
 
+		// Bevarad semantik: lagringsfel loggas och ackas. Klassificering
+		// till Temporary/Permanent kräver verifierad idempotens.
 		if len(errs) > 0 {
 			err := errors.Join(errs...)
 			log.Error("errors occurred while storing measurements", "err", err.Error())
-			return
 		}
+		return nil
 	}
 }

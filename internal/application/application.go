@@ -19,7 +19,7 @@ import (
 var tracer = otel.Tracer("iot-events")
 
 func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
-	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) {
+	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) error {
 		var err error
 
 		ctx, span := tracer.Start(ctx, "receive-message")
@@ -36,7 +36,7 @@ func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
 		err = json.Unmarshal(d.Body(), &topicMessage)
 		if err != nil {
 			logger.Error("failed to unmarshal message", "err", err.Error())
-			return
+			return messaging.Permanent(err)
 		}
 
 		tenant := ""
@@ -54,12 +54,13 @@ func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
 
 		if tenant == "" {
 			logger.Debug("message contains no tenant")
-			return
+			return nil
 		}
 
 		ctx = logging.NewContextWithLogger(ctx, logger, slog.String("message_id", messageID), slog.String("topic", d.TopicName()), slog.String("content_type", d.ContentType()))
 
 		msg := mediator.NewMessage(ctx, messageID, d.TopicName(), tenant, d.Body())
 		m.Publish(msg)
+		return nil
 	}
 }

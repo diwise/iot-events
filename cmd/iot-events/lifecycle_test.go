@@ -18,8 +18,8 @@ func (f storageCloseFunc) Close() { f() }
 
 // REV-007: shutdown must stop inflow, await admitted handlers, cancel
 // workers and then release storage exactly once, in messenger ->
-// cancel -> storage order, even when invoked twice. messenger.Close on
-// a real context is not safe to call twice, hence the guard.
+// cancel -> storage order, even when invoked twice. The sync.Once guard
+// ensures the messenger is shut down at most once.
 func TestShutdownIsOrderedAndIdempotent(t *testing.T) {
 	is := is.New(t)
 
@@ -27,7 +27,7 @@ func TestShutdownIsOrderedAndIdempotent(t *testing.T) {
 	storageCloses := 0
 	cancels := 0
 	messenger := &messaging.MsgContextMock{
-		CloseFunc: func() { order = append(order, "messenger") },
+		ShutdownFunc: func(context.Context) error { order = append(order, "messenger"); return nil },
 	}
 
 	owned := &ownedResources{
@@ -61,9 +61,10 @@ func TestHandlerTrackerWaitsForInflight(t *testing.T) {
 	release := make(chan struct{})
 	handlerStarted := make(chan struct{})
 
-	tracked := tracker.track(func(context.Context, messaging.IncomingTopicMessage, *slog.Logger) {
+	tracked := tracker.track(func(context.Context, messaging.IncomingTopicMessage, *slog.Logger) error {
 		close(handlerStarted)
 		<-release
+		return nil
 	})
 
 	done := make(chan bool, 1)
