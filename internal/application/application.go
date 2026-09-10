@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel"
@@ -11,6 +12,7 @@ import (
 	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/messaging-golang/pkg/messaging"
 	"github.com/diwise/senml"
+	diwisepkg "github.com/diwise/senml/diwise"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/tracing"
@@ -42,8 +44,12 @@ func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
 		tenant := ""
 
 		if topicMessage.Pack != nil {
-			t, ok := topicMessage.Pack.GetStringValue(senml.FindByName("tenant"))
-			if ok {
+			// Tenant via diwise-API:t så att även kvalificerad
+			// packmetadata (<device>/tenant) hittas. Faller tillbaka
+			// på envelopens tenantfält för främmande meddelandetyper.
+			if parsed, err := diwisepkg.Parse(*topicMessage.Pack, time.Now().UTC()); err == nil {
+				tenant = parsed.Tenant()
+			} else if t, ok := topicMessage.Pack.GetStringValue(senml.FindByName("tenant")); ok {
 				tenant = t
 			}
 		}

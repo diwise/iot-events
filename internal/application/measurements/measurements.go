@@ -7,9 +7,10 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/diwise/messaging-golang/pkg/messaging"
-	"github.com/diwise/senml"
+	diwisepkg "github.com/diwise/senml/diwise"
 )
 
 type MeasurementStorer interface {
@@ -18,7 +19,6 @@ type MeasurementStorer interface {
 }
 
 var (
-	errMissingHeader = errors.New("senml pack contains no header record")
 	errMissingTenant = errors.New("senml pack contains no tenant record")
 )
 
@@ -42,79 +42,66 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 			return messaging.Permanent(err)
 		}
 
-		if len(m.Pack) == 0 {
-			log.Debug("senml pack contains no records")
-			return nil
-		}
-
-		err = m.Pack.Validate()
+		// Referenstid för relativa SenML-tider: mottagningstid.
+		parsed, err := diwisepkg.Parse(m.Pack, time.Now().UTC())
 		if err != nil {
 			log.Error("invalid senml pack in message accepted", "err", err.Error())
 			return messaging.Permanent(err)
 		}
 
-		pack := m.Pack.Clone()
-
-		header, ok := pack.GetRecord(senml.FindByName("0"))
-		if !ok {
-			log.Error("could not find header record (0)")
-			return messaging.Permanent(errMissingHeader)
-		}
-
-		tenant, ok := pack.GetStringValue(senml.FindByName("tenant"))
-		if !ok {
+		deviceID := parsed.DeviceID()
+		tenant := parsed.Tenant()
+		if tenant == "" {
 			log.Error("could not find tenant record")
 			return messaging.Permanent(errMissingTenant)
 		}
 
-		deviceID, _, _ := strings.Cut(header.Name, "/")
-		urn := header.StringValue
-		lat, lon, _ := pack.GetLatLon()
-
-		errs := []error{}
 		ms := []Measurement{}
 
-		for _, r := range pack {
-			n, err := strconv.Atoi(r.Name)
-			if err != nil || n == 0 {
-				continue
+		// En rad per resurs och observation. ID är det fullständiga
+		// recordnamnet (unikt per enhet/objekt/kanal/resurs) och URN är
+		// observationens egen – aldrig headerns. Därmed kan tidsserier
+		// tas ut per sensortyp och poster med samma resursnummer från
+		// olika objekt skriver inte över varandra.
+		for _, o := range parsed.Objects() {
+			urn := o.URN()
+			meta := o.Metadata()
+			lat, lon := 0.0, 0.0
+			if meta.Latitude != nil {
+				lat = *meta.Latitude
+			}
+			if meta.Longitude != nil {
+				lon = *meta.Longitude
 			}
 
-			rec, ok := pack.GetRecord(senml.FindByName(r.Name))
-			if !ok {
-				// r.Name är ett SenML-recordnamn, ingen sensoridentitet:
-				// sensor_id (devEUI/MAC) finns inte i detta flöde.
-				log.Warn("could not find record", "name", r.Name)
-				continue
+			for _, r := range o.Resources() {
+				name := r.Name[strings.LastIndex(r.Name, "/")+1:]
+				n, err := strconv.Atoi(name)
+				if err != nil || n == 0 {
+					continue
+				}
+
+				ts, _ := r.GetTime()
+
+				m := NewMeasurement(ts, r.Name, deviceID, strconv.Itoa(n), urn, tenant)
+				m.BoolValue = r.BoolValue
+				m.Value = r.Value
+				m.StringValue = r.StringValue
+				m.Lat = lat
+				m.Lon = lon
+				m.Unit = r.Unit
+
+				ms = append(ms, m)
 			}
-
-			id := rec.Name
-			name := strconv.Itoa(n)
-			ts, _ := rec.GetTime()
-
-			m := NewMeasurement(ts, id, deviceID, name, urn, tenant)
-			m.BoolValue = rec.BoolValue
-			m.Value = rec.Value
-			m.StringValue = rec.StringValue
-			m.Lat = lat
-			m.Lon = lon
-			m.Unit = rec.Unit
-
-			ms = append(ms, m)
 		}
 
 		if len(ms) > 0 {
-			err := s.SaveAll(ctx, ms)
-			if err != nil {
-				errs = append(errs, err)
+			if err := s.SaveAll(ctx, ms); err != nil {
+				// Bevarad semantik: lagringsfel loggas och ackas.
+				// Klassificering till Temporary/Permanent kräver
+				// verifierad idempotens.
+				log.Error("errors occurred while storing measurements", "err", err.Error())
 			}
-		}
-
-		// Bevarad semantik: lagringsfel loggas och ackas. Klassificering
-		// till Temporary/Permanent kräver verifierad idempotens.
-		if len(errs) > 0 {
-			err := errors.Join(errs...)
-			log.Error("errors occurred while storing measurements", "err", err.Error())
 		}
 		return nil
 	}

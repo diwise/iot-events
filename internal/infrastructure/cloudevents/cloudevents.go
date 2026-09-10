@@ -11,6 +11,7 @@ import (
 
 	"github.com/diwise/iot-events/internal/infrastructure/mediator"
 	"github.com/diwise/senml"
+	diwisepkg "github.com/diwise/senml/diwise"
 	"github.com/diwise/service-chassis/pkg/infrastructure/o11y/logging"
 	"golang.org/x/sys/unix"
 
@@ -311,8 +312,13 @@ type messageBody struct {
 
 func (m messageBody) ID() string {
 	if m.Pack != nil {
-		rec, ok := m.Pack.GetRecord(senml.FindByName("0"))
-		if ok {
+		// Enhetsidentitet via diwise-API:t så att även pack med
+		// fullständiga (resolvade) namn och kvalificerad metadata fungerar.
+		if parsed, err := diwisepkg.Parse(*m.Pack, time.Now().UTC()); err == nil {
+			if id := parsed.DeviceID(); id != "" {
+				return id
+			}
+		} else if rec, ok := m.Pack.GetRecord(senml.FindByName("0")); ok {
 			parts := strings.Split(rec.Name, "/")
 			if len(parts) > 0 && len(parts[0]) > 0 {
 				return parts[0]

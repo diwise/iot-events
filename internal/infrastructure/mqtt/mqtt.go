@@ -544,11 +544,17 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		if name, ok := mapper[objectID]; ok {
 			var topic = fmt.Sprintf("%s/%s/%s/%s", p.prefix, tenant, topicIdentifier, name)
 
+			ts, ok := rec.GetTime()
+			if !ok {
+				log.Debug("record contains no representable time", "sensor_id", rec.Name)
+				continue
+			}
+
 			v := valueMessage{
 				Device:    dev,
 				Type:      name,
 				Unit:      rec.Unit,
-				Timestamp: time.Unix(int64(rec.Time), 0),
+				Timestamp: ts,
 			}
 
 			if rec.Value != nil {
