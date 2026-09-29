@@ -526,6 +526,11 @@ func (p *mqttPublisher) newMessageAcceptedHandler(m mediator.Message) {
 		return
 	}
 
+	if d.Tenant == "" || d.Tenant != tenant {
+		log.Warn("dropping message with tenant mismatch", "device_id", deviceID, "tenant", tenant, "expected_tenant", d.Tenant)
+		return
+	}
+
 	dev := device{
 		DeviceID: d.DeviceID,
 		SensorID: d.SensorID,
@@ -618,6 +623,11 @@ func (p *mqttPublisher) newStatusMessageHandler(m mediator.Message) {
 	d, err := p.dmc.GetDevice(ctx, topicMessage.DeviceID)
 	if err != nil {
 		log.Error("failed to get device", "err", err.Error())
+		return
+	}
+
+	if d.Tenant == "" || d.Tenant != tenant {
+		log.Warn("dropping status message with tenant mismatch", "device_id", topicMessage.DeviceID, "tenant", tenant, "expected_tenant", d.Tenant)
 		return
 	}
 

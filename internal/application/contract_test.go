@@ -56,8 +56,9 @@ func TestTopLevelTenantFallback(t *testing.T) {
 	is.Equal(published[0].Type(), "device-status")
 }
 
-// HARM-003: locks the drop behavior for messages that carry no tenant
-// in either position.
+// HARM-003: locks the reject behavior for messages that carry no tenant
+// in either position. Missing tenant is Permanent (poison to DLQ), not
+// silent ack, so contract violations never retry forever.
 func TestMessageWithoutTenantIsDropped(t *testing.T) {
 	is := is.New(t)
 
@@ -66,7 +67,9 @@ func TestMessageWithoutTenantIsDropped(t *testing.T) {
 		PublishFunc: func(message mediator.Message) { published = append(published, message) },
 	}
 
-	NewMessageHandler(m)(context.Background(), contractIncomingMessage(`{"pack":[]}`, "message.accepted", "application/json"), slog.Default())
+	err := NewMessageHandler(m)(context.Background(), contractIncomingMessage(`{"pack":[]}`, "message.accepted", "application/json"), slog.Default())
 
 	is.Equal(len(published), 0)
+	is.True(err != nil)
+	is.True(messaging.IsPermanent(err))
 }

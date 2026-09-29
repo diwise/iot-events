@@ -23,6 +23,7 @@ type Device struct {
 	DeviceID string `json:"deviceID"`
 	SensorID string `json:"sensorID"`
 	Name     string `json:"name"`
+	Tenant   string `json:"tenant"`
 }
 
 type Config struct {

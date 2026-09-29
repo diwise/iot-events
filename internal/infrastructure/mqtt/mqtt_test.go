@@ -34,6 +34,7 @@ func TestValueWithPorts(t *testing.T) {
 					DeviceID: deviceID,
 					SensorID: "sensor-123",
 					Name:     "Temperature Sensor",
+					Tenant:   "default",
 				}, nil
 			},
 		},
@@ -107,6 +108,7 @@ func TestValue(t *testing.T) {
 					DeviceID: deviceID,
 					SensorID: "sensor-123",
 					Name:     "Temperature Sensor",
+					Tenant:   "default",
 				}, nil
 			},
 		},
@@ -180,6 +182,7 @@ func TestStatus(t *testing.T) {
 					DeviceID: deviceID,
 					SensorID: "sensor-123",
 					Name:     "Temperature Sensor",
+					Tenant:   "default",
 				}, nil
 			},
 		},
@@ -224,6 +227,55 @@ func TestStatus(t *testing.T) {
 	is.Equal(sm.SpreadingFactor, new(float64(7)))
 	is.Equal(sm.DR, new(5))
 	is.True(sm.Timestamp.Equal(timestamp))
+}
+
+func TestMessageAcceptedDropsOnTenantMismatch(t *testing.T) {
+	is := is.New(t)
+	ctx := t.Context()
+
+	published := make(chan TopicMessage, 1)
+
+	p := &mqttPublisher{
+		prefix:     "test/prefix",
+		identifier: "deviceid",
+		m:          &mediator.MediatorMock{},
+		mqttClient: &ClientMock{
+			PublishFunc: func(ctx context.Context, msg TopicMessage) error {
+				published <- msg
+				return nil
+			},
+		},
+		dmc: &devicemanagement.ClientMock{
+			GetDeviceFunc: func(ctx context.Context, deviceID string) (*devicemanagement.Device, error) {
+				return &devicemanagement.Device{DeviceID: deviceID, SensorID: "sensor-123", Name: "n", Tenant: "expected"}, nil
+			},
+		},
+	}
+	sub := newSubscriber("message.accepted", p.newMessageAcceptedHandler)
+	go sub.run(ctx)
+
+	v := 21.5
+	pack := &senml.Pack{
+		senml.Record{BaseName: "device-1/0/3303/", BaseTime: float64(time.Now().Unix()), Name: "0", StringValue: "urn:oma:lwm2m:ext:3303"},
+		senml.Record{Name: "5700", Value: &v},
+		senml.Record{Name: "tenant", StringValue: "default"},
+	}
+	tenant := "spoofed"
+	m := struct {
+		Tenant *string     `json:"tenant,omitempty"`
+		Pack   *senml.Pack `json:"pack,omitempty"`
+	}{Tenant: &tenant, Pack: pack}
+
+	b, _ := json.Marshal(m)
+	sub.Handle(mediator.NewMessage(ctx, "1", "message.accepted", tenant, b))
+
+	select {
+	case msg := <-published:
+		t.Fatalf("expected drop on tenant mismatch, got publish to %s", msg.TopicName())
+	case <-time.After(200 * time.Millisecond):
+	}
+
+	_ = is
 }
 
 //go:fix inline

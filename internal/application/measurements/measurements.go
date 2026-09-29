@@ -97,10 +97,8 @@ func NewMessageAcceptedHandler(s MeasurementStorer) messaging.TopicMessageHandle
 
 		if len(ms) > 0 {
 			if err := s.SaveAll(ctx, ms); err != nil {
-				// Bevarad semantik: lagringsfel loggas och ackas.
-				// Klassificering till Temporary/Permanent kräver
-				// verifierad idempotens.
 				log.Error("errors occurred while storing measurements", "err", err.Error())
+				return err
 			}
 		}
 		return nil

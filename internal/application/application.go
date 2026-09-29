@@ -3,6 +3,7 @@ package application
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"time"
 
@@ -19,6 +20,8 @@ import (
 )
 
 var tracer = otel.Tracer("iot-events")
+
+var errMissingTenant = errors.New("message contains no tenant")
 
 func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
 	return func(ctx context.Context, d messaging.IncomingTopicMessage, logger *slog.Logger) error {
@@ -59,8 +62,8 @@ func NewMessageHandler(m mediator.Mediator) messaging.TopicMessageHandler {
 		}
 
 		if tenant == "" {
-			logger.Debug("message contains no tenant")
-			return nil
+			logger.Error("message contains no tenant")
+			return messaging.Permanent(errMissingTenant)
 		}
 
 		ctx = logging.NewContextWithLogger(ctx, logger, slog.String("message_id", messageID), slog.String("topic", d.TopicName()), slog.String("content_type", d.ContentType()))
