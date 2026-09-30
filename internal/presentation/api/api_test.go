@@ -28,7 +28,7 @@ func TestAPI(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 
-	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(legacyPolicy)))
+	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(legacyPolicy)), api.WithAccessObjectAuthorization(false))
 	is.NoErr(err)
 
 	ts := httptest.NewServer(mux)
@@ -53,7 +53,7 @@ func TestAPIAccessObjectAuthorization(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 
-	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(accessObjectPolicy)), api.WithAccessObjectAuthorization(true))
+	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(accessObjectPolicy)))
 	is.NoErr(err)
 
 	ts := httptest.NewServer(mux)

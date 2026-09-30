@@ -36,7 +36,7 @@ func TestDefaultFlags(t *testing.T) {
 		controlPort:        "8000",
 		cloudeventsFile:    "/opt/diwise/config/cloudevents.yaml",
 		policiesFile:       "/opt/diwise/config/authz.rego",
-		authzAccessObject:  "false",
+		authzAccessObject:  "true",
 		metadataFile:       "/opt/diwise/config/metadata.csv",
 		messengerTopic:     "#",
 		dbHost:             "",

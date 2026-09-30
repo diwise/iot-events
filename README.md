@@ -57,7 +57,7 @@ Precedens: default < miljovariabel < CLI-flagga. RabbitMQ konfigureras i ovrigt 
 | `OAUTH2_CLIENT_ID` | (tom) |  |
 | `OAUTH2_CLIENT_SECRET` | (tom) |  |
 | `OAUTH2_REALM_INSECURE` | `false` |  |
-| `AUTHZ_ACCESS_OBJECT_ENABLED` | `false` | Switches between the `tenants` and `access` result models |
+| `AUTHZ_ACCESS_OBJECT_ENABLED` | `true` | Access-object result model; set `false` for legacy `tenants` policies |
 | `LOG_LEVEL` | `debug` |  |
 | `RABBITMQ_HOST` | (tom, kravs om inte avstangd) | Se `messaging.LoadConfiguration` |
 | `RABBITMQ_PORT` | `5672` |  |
@@ -81,7 +81,7 @@ Alla booleska toggles (`MQTT_ENABLED`, `MQTT_INSECURE`, `OAUTH2_REALM_INSECURE`,
 ## CLI flags
  - `cloudevents` - Configuration file for cloud events (default `/opt/diwise/config/cloudevents.yaml`)
  - `policies` - An authorization policy file (default `/opt/diwise/config/authz.rego`)
- - `authz-access-object` - Enable the access-object authorization policy result model
+ - `authz-access-object` - Access-object authorization (default true); set false for legacy tenant-list policies
  - `metadata` - A CSV file with initial metadata (default `/opt/diwise/config/metadata.csv`; saknad fil tolereras)
  - `loglevel` - Set the log level (overrides `LOG_LEVEL`)
 

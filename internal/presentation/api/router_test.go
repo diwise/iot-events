@@ -34,7 +34,7 @@ func TestMigratedRoutes(t *testing.T) {
 	}
 	mux := http.NewServeMux()
 
-	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(legacyPolicy)))
+	err := api.RegisterHandlers(context.Background(), "test", mux, mm, sm, io.NopCloser(strings.NewReader(legacyPolicy)), api.WithAccessObjectAuthorization(false))
 	is.NoErr(err)
 
 	ts := httptest.NewServer(mux)
@@ -54,8 +54,8 @@ func TestAuthCoversEntireVersionSubtree(t *testing.T) {
 		policy string
 		opts   []api.RegisterOption
 	}{
-		"legacy":        {legacyPolicy, nil},
-		"access-object": {accessObjectPolicy, []api.RegisterOption{api.WithAccessObjectAuthorization(true)}},
+		"legacy":        {legacyPolicy, []api.RegisterOption{api.WithAccessObjectAuthorization(false)}},
+		"access-object": {accessObjectPolicy, nil},
 	}
 
 	for name, p := range policies {
