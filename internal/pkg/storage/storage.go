@@ -197,7 +197,7 @@ func connect(ctx context.Context, config Config) (*pgxpool.Pool, error) {
 	poolConfig.MaxConnLifetime = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MAX_CONN_LIFETIME", 30*time.Minute)
 	poolConfig.MaxConnIdleTime = env.GetVariableOrDefaultAs(ctx, "POSTGRES_MAX_CONN_IDLE_TIME", 5*time.Minute)
 	poolConfig.HealthCheckPeriod = env.GetVariableOrDefaultAs(ctx, "POSTGRES_HEALTH_CHECK_PERIOD", 30*time.Second)
-	
+
 	poolConfig.ConnConfig.RuntimeParams["application_name"] = "iot-events"
 
 	log := logging.GetFromContext(ctx)
@@ -276,8 +276,7 @@ func initialize(ctx context.Context, conn *pgxpool.Pool) error {
 
 	_, err = c.Exec(ctx, `SELECT create_hypertable('events_measurements', 'time');`)
 	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) {
+		if pgErr, ok := errors.AsType[*pgconn.PgError](err); ok {
 			if pgErr.Code != "TS110" {
 				return err
 			}
